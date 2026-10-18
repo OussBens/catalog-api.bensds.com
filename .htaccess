@@ -1,0 +1,56 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Allow direct access to files
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Route all requests to index.php, en conservant le chemin dans PATH_INFO
+    RewriteRule ^(.*)$ index.php/$1 [L]
+</IfModule>
+
+# Security: Deny access to .env
+<Files .env>
+    Order allow,deny
+    Deny from all
+</Files>
+
+# Security: Deny access to sensitive directories
+RedirectMatch 403 ^/(config|models|controllers|services|middleware)/.*$
+
+RewriteCond %{HTTP_REFERER} !^http://admin.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://admin.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://api.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://api.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://catalog-api.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://catalog-api.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://www.admin.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://www.admin.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://www.api.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://www.api.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://www.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://www.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://www.catalog-api.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^http://www.catalog-api.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://admin.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://admin.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://api.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://api.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://catalog-api.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://catalog-api.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://www.admin.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://www.admin.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://www.api.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://www.api.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://www.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://www.bensds.com$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://www.catalog-api.bensds.com/.*$      [NC]
+RewriteCond %{HTTP_REFERER} !^https://www.catalog-api.bensds.com$      [NC]
+RewriteRule .*\.(jpg|jpeg|gif|png|bmp)$ - [F,NC]
+

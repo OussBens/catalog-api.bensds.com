@@ -1,0 +1,14 @@
+# Secrets: the real values stay on the server (template: .env.example)
+.env
+
+# Server-side only
+error_log
+.composer/
+composer.phar
+
+# Uploaded product photos (user content, backed up with the server)
+uploads/photos/
+public/uploads/
+
+# Imports
+*.csv

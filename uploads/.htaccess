@@ -1,0 +1,6 @@
+# Empêche toute exécution de script dans ce dossier — uniquement des images statiques
+<FilesMatch "\.(php|phtml|php\d|pl|py|jsp|asp|aspx|sh|cgi|exe)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+Options -ExecCGI -Indexes
