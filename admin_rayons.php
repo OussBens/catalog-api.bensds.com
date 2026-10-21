@@ -236,12 +236,18 @@ textarea{width:100%;height:220px}button,.bouton{background:#755DB3;color:#fff;bo
     <div><div class="chiffre"><?= $n($t['tendances']) ?></div><small>en tendance</small></div>
     <div><div class="chiffre"><?= $n($t['crees']) ?></div><small>produits créés par les boutiques</small></div>
     <div><div class="chiffre"><?= $n($t['completes']) ?></div><small>fiches complétées</small></div>
+    <div><div class="chiffre"><?= $n($t['a_confirmer']) ?></div><small>à confirmer</small></div>
+    <div><div class="chiffre"><?= $n($t['confirmes']) ?></div><small>confirmés</small></div>
+    <div><div class="chiffre"><?= $n($t['supprimes']) ?></div><small>supprimés (refusés)</small></div>
     <div><div class="chiffre"><?= $n($t['noms_ar']) ?></div><small>noms arabes</small></div>
   </div>
   <p><small>Sur les <?= Tendance::JOURS ?> derniers jours. Tendance : vendu dans au moins <?= $st['seuils']['postes'] ?> boutiques
     et dans au moins <?= $st['seuils']['tickets'] ?> tickets (.env TENDANCE_POSTES_MIN, TENDANCE_TICKETS_MIN) ;
     points ajoutés au classement : <?= Tendance::POINTS_POSTE ?> par boutique + <?= Tendance::POINTS_VENTE ?> par ticket
-    (<?= Tendance::VENTES_MAX_JOUR ?> au plus par boutique et par jour). Chaque rayon propose ses <?= $n(Rayons::PLAFOND) ?> premiers.</small></p>
+    (<?= Tendance::VENTES_MAX_JOUR ?> au plus par boutique et par jour). Chaque rayon propose ses <?= $n(Rayons::PLAFOND) ?> premiers.
+    Produit ajouté par une boutique : à confirmer, score de départ <?= $st['seuils']['confirmation_depart'] ?>, +1 / −1 par boutique qui le
+    scanne ; confirmé à <?= $st['seuils']['confirmation_seuil'] ?>, supprimé à <?= $st['seuils']['confirmation_suppression'] ?>
+    (.env CONFIRMATION_DEPART, CONFIRMATION_SEUIL, CONFIRMATION_SUPPRESSION).</small></p>
   <form method="post"><?= csrf() ?><input type="hidden" name="action" value="rafraichir_tendance">
     <button class="sec">Recalculer les tendances</button> <small>(fait aussi peu à peu à chaque envoi des postes)</small></form>
 </div>
@@ -254,12 +260,15 @@ textarea{width:100%;height:220px}button,.bouton{background:#755DB3;color:#fff;bo
   <?php endforeach; ?>
   <?php if (!$st['tendances']): ?><tr><td colspan="8"><small>Aucune vente reçue pour l'instant.</small></td></tr><?php endif; ?></table></div>
 <div class="carte"><h3 style="margin-top:0">Dernières contributions des boutiques</h3>
-  <table><tr><th>Le</th><th>Boutique</th><th>Produit</th><th>Action</th><th>Champs</th></tr>
-  <?php foreach ($st['contributions'] as $c): ?>
+  <table><tr><th>Le</th><th>Boutique</th><th>Produit</th><th>Action</th><th>Champs</th><th>Aujourd'hui</th></tr>
+  <?php foreach ($st['contributions'] as $c):
+      $action = ['cree' => 'créé', 'complete' => 'complété', 'confirme' => 'confirmé', 'supprime' => 'supprimé'][$c['action']] ?? $c['action'];
+      $etat = $c['etat'] === 'supprime' ? 'supprimé'
+          : ($c['etat'] === 'a_confirmer' ? 'à confirmer (' . (int)$c['confirmation'] . '/' . $st['seuils']['confirmation_seuil'] . ')' : 'confirmé'); ?>
     <tr><td><?= h($c['le']) ?></td><td><?= h($c['poste']) ?></td><td><?= h($c['nom']) ?> <small>#<?= $c['id'] ?></small></td>
-      <td><?= $c['action'] === 'cree' ? 'créé' : 'complété' ?></td><td><?= h(implode(', ', $c['champs'])) ?></td></tr>
+      <td><?= h($action) ?></td><td><?= h(implode(', ', $c['champs'])) ?></td><td><?= h($etat) ?></td></tr>
   <?php endforeach; ?>
-  <?php if (!$st['contributions']): ?><tr><td colspan="5"><small>Aucune pour l'instant.</small></td></tr><?php endif; ?></table></div>
+  <?php if (!$st['contributions']): ?><tr><td colspan="6"><small>Aucune pour l'instant.</small></td></tr><?php endif; ?></table></div>
 
 <?php else: ?>
 <div class="carte">

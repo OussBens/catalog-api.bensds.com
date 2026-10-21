@@ -21,6 +21,7 @@ description = "The PHP tests (no server, no MySQL): rayons, tendance, BENS licen
 run = [
   "php catalogue_core/tests/rayons_test.php",
   "php -d extension=sodium catalogue_core/tests/tendance_test.php",
+  "php -d extension=sodium catalogue_core/tests/admin_test.php",
   "php -d extension=sodium smartscan_core/tests/licence_bens_test.php",
   "php -d extension=sodium smartscan_core/tests/smartscan_desktop_test.php",
 ]

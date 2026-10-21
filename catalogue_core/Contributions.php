@@ -4,7 +4,8 @@
  * envoie les fiches qu'il a saisies (code-barres, nom, nom arabe, marque, catégorie, autres codes-barres).
  *
  *   code-barres inconnu  → le produit est créé tout de suite (source CaisseDZ, contribue_par = le poste),
- *                          rangé dans son rayon (porc / alcool exclus comme les autres) ;
+ *                          rangé dans son rayon (porc / alcool exclus comme les autres), « à confirmer » par les
+ *                          autres boutiques (Confirmations.php) avant d'être proposé dans les rayons ;
  *   code-barres connu    → seuls les champs vides sont complétés (nom, nom arabe, marque, catégorie, codes-barres
  *                          supplémentaires) ; une valeur déjà présente n'est jamais remplacée.
  * Chaque création ou complément est noté dans catalog_contribution (poste, champs) : le tableau de bord BENS
@@ -143,9 +144,10 @@ class Contributions
     {
         $marque = $f['marque'] === null ? null : self::idParNom($db, 'catalog_brand', $f['marque']);
         $categorie = $f['categorie'] === null ? null : self::idParNom($db, 'catalog_category', $f['categorie']);
-        $db->prepare('INSERT INTO catalog_product (code_produit, nom, nom_ar, nom_ar_poste, brand_id, category_id, source_id, contribue_par)
-                      VALUES (?, ?, ?, ?, ?, ?, 1, ?)')
-           ->execute([$f['codes'][0], $f['nom'], $f['nom_ar'], $f['nom_ar'] === null ? null : $poste, $marque, $categorie, $poste]);
+        $db->prepare('INSERT INTO catalog_product (code_produit, nom, nom_ar, nom_ar_poste, brand_id, category_id, source_id, contribue_par,
+                      a_confirmer, confirmation) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 1, ?)')
+           ->execute([$f['codes'][0], $f['nom'], $f['nom_ar'], $f['nom_ar'] === null ? null : $poste, $marque, $categorie, $poste,
+                      Confirmations::depart()]);
         $id = (int)$db->lastInsertId();
         $code = $db->prepare('INSERT INTO catalog_product_barcode (product_id, barcode, is_primary, source_id) VALUES (?, ?, ?, 1)');
         foreach ($f['codes'] as $i => $c) {

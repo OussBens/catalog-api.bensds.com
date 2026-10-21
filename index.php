@@ -117,15 +117,23 @@ require_once __DIR__ . '/smartscan_core/routes.php';
 require_once __DIR__ . '/catalogue_core/routes.php';
 
 try {
-    // Les routes /smartscan/* et /tendance s'authentifient par la licence Caisse DZ du poste
-    // (smartscan_core/routes.php, catalogue_core/routes.php), pas par la clé d'administration du catalogue.
-    if (!in_array($method, ['GET', 'HEAD', 'OPTIONS'], true) && !in_array($path_parts[0] ?? '', ['smartscan', 'tendance'], true)) {
+    // Les routes /smartscan/* et /tendance s'authentifient par la licence Caisse DZ du poste, /admin/* par le jeton
+    // du tableau de bord BENS (smartscan_core/routes.php, catalogue_core/routes.php), pas par la clé d'administration.
+    if (!in_array($method, ['GET', 'HEAD', 'OPTIONS'], true) && !in_array($path_parts[0] ?? '', ['smartscan', 'tendance', 'admin'], true)) {
         requireApiKey();
     }
 
     $db = getDbConnection();
     if (!$db) {
         throw new Exception('Erreur de connexion à la base de données. Vérifiez vos identifiants dans .env');
+    }
+    // Après un déploiement qui ajoute des tables ou colonnes : installées au premier appel (catalogue_core/RayonsSchema.php).
+    try {
+        if (RayonsSchema::assurer($db)) {
+            error_log('[catalog-api] schéma mis à jour (version ' . RayonsSchema::VERSION . ')');
+        }
+    } catch (Exception $e) {
+        error_log('[catalog-api] mise à jour du schéma impossible : ' . $e->getMessage());
     }
 
     // ===== ROUTE PAR DÉFAUT =====
@@ -219,6 +227,12 @@ try {
         exit;
     }
 
+    // ===== ADMINISTRATION DU CATALOGUE (tableau de bord BENS, jeton REV_SERVER_TOKEN, catalogue_core/Admin.php) =====
+    if ($resource === 'admin') {
+        adminRoute($db, $method, $id, $sub, $path_parts[3] ?? null);
+        exit;
+    }
+
     // ===== TENDANCE (ventes des postes CaisseDZ Desktop, catalogue_core/Tendance.php) =====
     if ($resource === 'tendance') {
         tendanceRoute($db, $method, $id);
@@ -284,6 +298,9 @@ try {
                 }
                 // Chaque recherche fait monter le produit dans le classement de son rayon.
                 Rayons::compterConsultation($db, $product['id']);
+                // Produit apporté par une boutique, à confirmer : le poste demande « est-ce bien lui ? ».
+                $product['a_confirmer'] = (int)($product['a_confirmer'] ?? 0) === 1;
+                $product['confirmation_seuil'] = Confirmations::seuil();
 
                 echo json_encode(['success' => true, 'data' => $product], JSON_UNESCAPED_UNICODE);
                 exit;

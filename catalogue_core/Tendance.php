@@ -104,20 +104,23 @@ class Tendance
     /**
      * L'envoi d'un poste [poste] (son code CD-XXXX-XXXX) :
      *   {produits: [{code_barres, codes_barres, nom, nom_ar, marque, categorie}],
+     *    confirmations: [{code_barres, vote: 1 | -1}],
      *    ventes: [{jour: "AAAA-MM-JJ", code_barres, tickets}]}.
-     * Les fiches passent d'abord (un produit créé par la boutique compte aussitôt ses ventes) ; les jours hors
-     * fenêtre et les codes-barres toujours inconnus sont ignorés.
-     * Renvoie {ventes, inconnus, crees, completes}.
+     * Les fiches passent d'abord (un produit créé par la boutique compte aussitôt ses ventes), puis les votes sur
+     * les produits à confirmer (Confirmations.php) ; les jours hors fenêtre et les codes-barres toujours inconnus
+     * sont ignorés. Renvoie {ventes, inconnus, crees, completes, votes, confirmes, supprimes}.
      */
     public static function enregistrer(PDO $db, $poste, array $corps, DateTimeImmutable $aujourdhui = null)
     {
         $aujourdhui = self::jour($aujourdhui);
         $ventes = is_array($corps['ventes'] ?? null) ? $corps['ventes'] : [];
         $produits = is_array($corps['produits'] ?? null) ? $corps['produits'] : [];
-        if (count($ventes) + count($produits) > self::LIGNES_MAX) {
+        $votes = is_array($corps['confirmations'] ?? null) ? $corps['confirmations'] : [];
+        if (count($ventes) + count($produits) + count($votes) > self::LIGNES_MAX) {
             throw new Exception('Trop de lignes (' . self::LIGNES_MAX . ' au plus par envoi)', 413);
         }
         $contributions = Contributions::appliquer($db, $poste, $produits);
+        $confirmations = Confirmations::voter($db, $poste, $votes);
 
         $premier = $aujourdhui->modify('-' . self::JOURS . ' days')->format('Y-m-d');
         $dernier = $aujourdhui->modify('+1 day')->format('Y-m-d');
@@ -174,6 +177,9 @@ class Tendance
             'inconnus' => count($inconnus),
             'crees' => $contributions['crees'],
             'completes' => $contributions['completes'],
+            'votes' => $confirmations['votes'],
+            'confirmes' => $confirmations['confirmes'],
+            'supprimes' => $confirmations['supprimes'],
         ];
     }
 
@@ -277,7 +283,7 @@ class Tendance
         };
         $ventes = $q('SELECT COUNT(DISTINCT poste) AS postes, COUNT(DISTINCT product_id) AS produits,
                              COALESCE(SUM(tickets), 0) AS tickets FROM catalog_vente_jour WHERE jour >= ?', [$debut])[0];
-        $actions = ['cree' => 0, 'complete' => 0];
+        $actions = ['cree' => 0, 'complete' => 0, 'confirme' => 0, 'supprime' => 0];
         foreach ($q('SELECT action, COUNT(*) AS n FROM catalog_contribution GROUP BY action') as $r) {
             $actions[$r['action']] = (int)$r['n'];
         }
@@ -304,7 +310,8 @@ class Tendance
                 $postes[$r['poste']]['produits'] = (int)$r['p'];
             }
         }
-        foreach ($q('SELECT poste, action, COUNT(*) AS n FROM catalog_contribution GROUP BY poste, action') as $r) {
+        foreach ($q("SELECT poste, action, COUNT(*) AS n FROM catalog_contribution WHERE action IN ('cree', 'complete')
+                     GROUP BY poste, action") as $r) {
             if (isset($postes[$r['poste']])) {
                 $postes[$r['poste']][$r['action'] === 'cree' ? 'crees' : 'completes'] = (int)$r['n'];
             }
@@ -319,21 +326,52 @@ class Tendance
             ];
         }
         $contributions = [];
-        foreach ($q('SELECT c.product_id, c.poste, c.action, c.champs, c.cree_le, p.nom
+        foreach ($q('SELECT c.product_id, c.poste, c.action, c.champs, c.cree_le, p.nom, p.a_confirmer, p.confirmation
                      FROM catalog_contribution c LEFT JOIN catalog_product p ON p.id = c.product_id
                      ORDER BY c.cree_le DESC, c.id DESC LIMIT 50') as $c) {
+            // Confirmé ou supprimé : champs = le score ou le nom (le produit supprimé n'existe plus).
+            // Une suppression garde le nom qu'il avait (son id a pu être repris par un autre produit depuis).
+            $vote = in_array($c['action'], ['confirme', 'supprime'], true);
+            if ($c['action'] === 'supprime') {
+                $c['nom'] = null;
+            }
             $contributions[] = [
-                'id' => (int)$c['product_id'], 'nom' => $c['nom'], 'poste' => $c['poste'], 'action' => $c['action'],
-                'champs' => $c['champs'] === '' ? [] : explode(',', $c['champs']), 'le' => $c['cree_le'],
+                'id' => (int)$c['product_id'],
+                'nom' => $c['nom'] ?? ($c['action'] === 'supprime' ? $c['champs'] : null),
+                'poste' => $c['poste'], 'action' => $c['action'],
+                'champs' => $vote || $c['champs'] === '' ? [] : explode(',', $c['champs']), 'le' => $c['cree_le'],
+                // Le produit aujourd'hui : à confirmer (score), confirmé, ou supprimé (null).
+                'etat' => $c['nom'] === null ? 'supprime' : ((int)$c['a_confirmer'] === 1 ? 'a_confirmer' : 'confirme'),
+                'confirmation' => $c['confirmation'] === null ? null : (int)$c['confirmation'],
             ];
         }
+        // Séries par jour sur la fenêtre (graphiques du tableau de bord).
+        $jours = [];
+        foreach ($q('SELECT jour, SUM(tickets) AS t, COUNT(DISTINCT poste) AS p, COUNT(DISTINCT product_id) AS n
+                     FROM catalog_vente_jour WHERE jour >= ? GROUP BY jour ORDER BY jour', [$debut]) as $r) {
+            $jours[] = ['jour' => substr((string)$r['jour'], 0, 10), 'tickets' => (int)$r['t'], 'postes' => (int)$r['p'], 'produits' => (int)$r['n']];
+        }
+        $parJour = [];
+        foreach ($q('SELECT DATE(cree_le) AS jour, action, COUNT(*) AS n FROM catalog_contribution
+                     WHERE cree_le >= ? GROUP BY DATE(cree_le), action ORDER BY jour', [$debut]) as $r) {
+            $j = substr((string)$r['jour'], 0, 10);
+            $parJour[$j] = ($parJour[$j] ?? ['jour' => $j, 'cree' => 0, 'complete' => 0, 'confirme' => 0, 'supprime' => 0]);
+            if (isset($parJour[$j][$r['action']])) {
+                $parJour[$j][$r['action']] = (int)$r['n'];
+            }
+        }
         return [
+            'jours' => $jours,
+            'contributions_jours' => array_values($parJour),
             'seuils' => ['postes' => self::postesMin(), 'tickets' => self::ticketsMin(), 'jours' => self::JOURS,
-                         'plafond' => Rayons::PLAFOND],
+                         'plafond' => Rayons::PLAFOND, 'confirmation_depart' => Confirmations::depart(),
+                         'confirmation_seuil' => Confirmations::seuil(), 'confirmation_suppression' => Confirmations::suppression()],
             'totaux' => [
                 'postes' => (int)$ventes['postes'], 'produits' => (int)$ventes['produits'], 'tickets' => (int)$ventes['tickets'],
                 'tendances' => array_sum($parRayon),
                 'crees' => $actions['cree'], 'completes' => $actions['complete'],
+                'a_confirmer' => (int)$db->query('SELECT COUNT(*) FROM catalog_product WHERE a_confirmer = 1')->fetchColumn(),
+                'confirmes' => $actions['confirme'], 'supprimes' => $actions['supprime'],
                 'noms_ar' => (int)$db->query("SELECT COUNT(*) FROM catalog_product WHERE nom_ar IS NOT NULL AND nom_ar <> ''")->fetchColumn(),
             ],
             'rayons' => $rayons,

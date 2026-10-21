@@ -327,7 +327,7 @@ class Rayons
         $nb = [];
         $tendances = [];
         foreach ($db->query('SELECT rayon_code, COUNT(*) AS n, SUM(tendance) AS t FROM catalog_product
-                             WHERE exclu = 0 AND rayon_code IS NOT NULL GROUP BY rayon_code')->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                             WHERE exclu = 0 AND a_confirmer = 0 AND rayon_code IS NOT NULL GROUP BY rayon_code')->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $nb[$r['rayon_code']] = (int)$r['n'];
             $tendances[$r['rayon_code']] = (int)$r['t'];
         }
@@ -356,7 +356,8 @@ class Rayons
         }
         $page = max(1, (int)$page);
         $limite = max(1, min((int)$limite, self::LOT_PAGE_MAX));
-        $filtre = 'p.rayon_code = ? AND p.exclu = 0';
+        // Un produit apporté par une boutique n'est proposé qu'une fois confirmé (Confirmations.php).
+        $filtre = 'p.rayon_code = ? AND p.exclu = 0 AND p.a_confirmer = 0';
         $params = [$code];
         if ($depuis !== null) {
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$depuis)) {

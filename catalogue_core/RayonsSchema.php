@@ -11,12 +11,19 @@
  *   catalog_vente_jour       tickets par produit, poste et jour (POST /tendance)
  *   catalog_contribution     produits créés ou complétés par les boutiques (Contributions.php)
  *   catalog_poste            dernier envoi de chaque poste
+ *   catalog_confirmation     votes des boutiques sur les produits à confirmer (Confirmations.php)
  *
  * Les 50 000 catégories brutes (Open Food / Beauty Facts) restent telles quelles :
  * le rayon est calculé à partir de leur nom et du nom du produit (Rayons::classer).
  */
 class RayonsSchema
 {
+    /**
+     * Version du schéma de ce code : à augmenter à chaque table ou colonne ajoutée. L'API compare avec celle de la
+     * base (catalog_schema) à chaque requête et installe ce qui manque toute seule (RayonsSchema::assurer).
+     */
+    const VERSION = 4;
+
     const COLONNES_PRODUIT = [
         'rayon_code VARCHAR(40) NULL',
         'exclu TINYINT NOT NULL DEFAULT 0',
@@ -32,9 +39,12 @@ class RayonsSchema
         'tendance_le DATETIME NULL',
         'tendance_maj DATE NULL',
         'contribue_par VARCHAR(20) NULL',
+        'a_confirmer TINYINT NOT NULL DEFAULT 0',
+        'confirmation INT NULL',
+        'confirme_le DATETIME NULL',
     ];
 
-    const TABLES = ['catalog_rayon', 'catalog_vente_jour', 'catalog_contribution', 'catalog_poste'];
+    const TABLES = ['catalog_rayon', 'catalog_vente_jour', 'catalog_contribution', 'catalog_poste', 'catalog_confirmation'];
 
     /** Toutes les tables et colonnes sont-elles là ? (Sinon : installer.) */
     public static function aJour(PDO $db)
@@ -48,6 +58,43 @@ class RayonsSchema
             return true;
         } catch (Exception $e) {
             return false;
+        }
+    }
+
+    /** La version du schéma installée dans la base (0 : jamais notée). */
+    public static function versionInstallee(PDO $db)
+    {
+        try {
+            return (int)$db->query('SELECT version FROM catalog_schema WHERE id = 1')->fetchColumn();
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Après un déploiement : si la base n'est pas à la VERSION du code, installe tables et colonnes (une seule
+     * requête à la fois, verrou MySQL). Une seule requête légère quand tout est à jour. Vrai si elle a installé.
+     */
+    public static function assurer(PDO $db)
+    {
+        if (self::versionInstallee($db) >= self::VERSION) {
+            return false;
+        }
+        $mysql = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
+        if ($mysql && (int)$db->query("SELECT GET_LOCK('catalog_schema', 120)")->fetchColumn() !== 1) {
+            return false;
+        }
+        try {
+            if (self::versionInstallee($db) >= self::VERSION) {
+                return false;
+            }
+            @set_time_limit(600);
+            self::installer($db);
+            return true;
+        } finally {
+            if ($mysql) {
+                $db->query("SELECT RELEASE_LOCK('catalog_schema')");
+            }
         }
     }
 
@@ -81,6 +128,13 @@ class RayonsSchema
             champs VARCHAR(200) NOT NULL DEFAULT '',
             cree_le DATETIME NOT NULL
         )$moteur");
+        $db->exec("CREATE TABLE IF NOT EXISTS catalog_confirmation (
+            product_id INT NOT NULL,
+            poste VARCHAR(20) NOT NULL,
+            vote TINYINT NOT NULL,
+            le DATETIME NOT NULL,
+            PRIMARY KEY (product_id, poste)
+        )$moteur");
         $db->exec("CREATE TABLE IF NOT EXISTS catalog_poste (
             poste VARCHAR(20) PRIMARY KEY,
             premier_le DATETIME NOT NULL,
@@ -109,6 +163,9 @@ class RayonsSchema
                 // Déjà créé.
             }
         }
+        $db->exec("CREATE TABLE IF NOT EXISTS catalog_schema (id INT PRIMARY KEY, version INT NOT NULL)$moteur");
+        $db->prepare('DELETE FROM catalog_schema WHERE id = 1')->execute();
+        $db->prepare('INSERT INTO catalog_schema (id, version) VALUES (1, ?)')->execute([self::VERSION]);
 
         $existe = $db->prepare('SELECT COUNT(*) FROM catalog_rayon WHERE code = ?');
         $insert = $db->prepare('INSERT INTO catalog_rayon

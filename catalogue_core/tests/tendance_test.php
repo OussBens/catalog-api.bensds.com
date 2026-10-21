@@ -6,6 +6,7 @@ require __DIR__ . '/../Rayons.php';
 require __DIR__ . '/../RayonsSchema.php';
 require __DIR__ . '/../Tendance.php';
 require __DIR__ . '/../Contributions.php';
+require __DIR__ . '/../Confirmations.php';
 
 $ok = 0;
 $ko = 0;
@@ -168,6 +169,9 @@ check('créé : nom nettoyé, nom arabe, boutique notée', $c['nom'] === 'Cousco
     && $c['contribue_par'] === 'CD-AAAA-AAAA' && $c['nom_ar_poste'] === 'CD-AAAA-AAAA' && (int)$c['source_id'] === 1);
 check('créé : rangé dans l\'épicerie, code-barres algérien', $c['rayon_code'] === 'epicerie' && (int)$c['exclu'] === 0
     && (int)$c['score'] === 50 + (int)$c['points_tendance']);
+check('créé : à confirmer, score de départ 2', (int)$c['a_confirmer'] === 1 && (int)$c['confirmation'] === 2);
+check('créé : pas encore proposé dans son rayon', Rayons::produits($db, 'epicerie')['total'] === 0);
+check('fiche complétée : pas à confirmer (le produit existait)', (int)produit($db, 4)['a_confirmer'] === 0);
 check('créé : ses deux codes-barres, pas le code interne', (int)parCode($db, '6130007000022')['id'] === (int)$c['id']
     && parCode($db, 'CDZ1') === null);
 check('créé : marque et catégorie', $db->query('SELECT nom FROM catalog_brand WHERE id = ' . (int)$c['brand_id'])->fetchColumn() === 'Mama'
@@ -196,7 +200,10 @@ check('rien remplacé, un code-barres ajouté', $r['crees'] === 0 && $r['complet
 
 // ---- Statistiques du tableau de bord -------------------------------------------------------------
 $st = Tendance::stats($db, $j);
-check('stats : seuils', $st['seuils'] === ['postes' => 3, 'tickets' => 20, 'jours' => 90, 'plafond' => 5000]);
+check('stats : seuils', $st['seuils'] === ['postes' => 3, 'tickets' => 20, 'jours' => 90, 'plafond' => 5000,
+    'confirmation_depart' => 2, 'confirmation_seuil' => 5, 'confirmation_suppression' => 0]);
+check('stats : 2 produits à confirmer', $st['totaux']['a_confirmer'] === 2 && $st['contributions'][4]['etat'] === 'a_confirmer'
+    && $st['contributions'][4]['confirmation'] === 2);
 check('stats : 3 boutiques, 1 en tendance, 2 créés, 3 complétés', $st['totaux']['postes'] === 3 && $st['totaux']['tendances'] === 1
     && $st['totaux']['crees'] === 2 && $st['totaux']['completes'] === 3);
 check('stats : Cola en tête', $st['tendances'][0]['nom'] === 'Cola 33cl' && $st['tendances'][0]['tendance'] === true
@@ -228,8 +235,63 @@ try {
 } catch (Exception $e) {
     check('trop de lignes : 413', $e->getCode() === 413);
 }
-check('corps vide : rien', Tendance::enregistrer($db, 'CD-AAAA-AAAA', [], $j) === ['ventes' => 0, 'inconnus' => 0, 'crees' => 0, 'completes' => 0]);
+check('corps vide : rien', Tendance::enregistrer($db, 'CD-AAAA-AAAA', [], $j)
+    === ['ventes' => 0, 'inconnus' => 0, 'crees' => 0, 'completes' => 0, 'votes' => 0, 'confirmes' => 0, 'supprimes' => 0]);
 check('points : plafond de tickets', Tendance::points(3, 5000) === 3000 + Tendance::VENTES_MAX_COMPTEES * Tendance::POINTS_VENTE);
+
+// ---- Confirmation par les autres boutiques ---------------------------------------------------------
+$vote = function ($poste, $code, $v) use ($db, $j) {
+    return Tendance::enregistrer($db, $poste, ['confirmations' => [['code_barres' => $code, 'vote' => $v]]], $j);
+};
+$couscous = '6130007000015';
+check('la boutique qui l\'a créé ne vote pas', $vote('CD-AAAA-AAAA', $couscous, 1)['votes'] === 0
+    && (int)parCode($db, $couscous)['confirmation'] === 2);
+$r = Tendance::enregistrer($db, 'CD-BBBB-BBBB', ['confirmations' => [
+    ['code_barres' => $couscous, 'vote' => 2],            // ni +1 ni −1
+    ['code_barres' => 'CDZ123', 'vote' => 1],             // code interne
+    ['code_barres' => '9999999999999', 'vote' => 1],      // inconnu
+    ['code_barres' => '3000000000002', 'vote' => 1],      // Cola : jamais à confirmer
+]], $j);
+check('votes invalides ignorés', $r['votes'] === 0);
+check('B : c\'est bien lui → 3', $vote('CD-BBBB-BBBB', $couscous, 1)['votes'] === 1 && (int)parCode($db, $couscous)['confirmation'] === 3);
+check('B revote : remplacé, pas ajouté → 3', $vote('CD-BBBB-BBBB', '6130007000022', 1)['votes'] === 1
+    && (int)parCode($db, $couscous)['confirmation'] === 3);
+$vote('CD-CCCC-CCCC', $couscous, 1);
+check('C → 4, toujours à confirmer', (int)parCode($db, $couscous)['confirmation'] === 4 && (int)parCode($db, $couscous)['a_confirmer'] === 1);
+$r = $vote('CD-DDDD-DDDD', $couscous, 1);
+$cc = parCode($db, $couscous);
+check('D → 5 : confirmé', $r['confirmes'] === 1 && (int)$cc['a_confirmer'] === 0 && (int)$cc['confirmation'] === 5 && $cc['confirme_le'] !== null);
+check('confirmé : proposé dans son rayon', Rayons::produits($db, 'epicerie')['products'][0]['nom'] === 'Couscous Mama 1kg');
+check('confirmé : plus de vote', $vote('CD-EEEE-EEEE', $couscous, -1)['votes'] === 0 && (int)parCode($db, $couscous)['confirmation'] === 5);
+
+// Jambon (à confirmer, 2) : deux « ce n'est pas ça » → 0 → supprimé, avec ses codes-barres et ses votes.
+$jambon = '3000000000099';
+$idJambon = (int)parCode($db, $jambon)['id'];
+$vote('CD-BBBB-BBBB', $jambon, -1);
+check('B : ce n\'est pas ça → 1', (int)parCode($db, $jambon)['confirmation'] === 1);
+$r = $vote('CD-CCCC-CCCC', $jambon, -1);
+check('C → 0 : supprimé du catalogue', $r['supprimes'] === 1 && parCode($db, $jambon) === null
+    && (int)$db->query("SELECT COUNT(*) FROM catalog_confirmation WHERE product_id = $idJambon")->fetchColumn() === 0);
+$dernier = $db->query("SELECT action, champs, poste FROM catalog_contribution ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+check('suppression notée avec son nom', $dernier === ['action' => 'supprime', 'champs' => 'Jambon de porc', 'poste' => 'CD-CCCC-CCCC']);
+
+// Un vote changé : +1 puis −1 de la même boutique compte −1.
+Tendance::enregistrer($db, 'CD-BBBB-BBBB', ['produits' => [['code_barres' => '6130008000014', 'nom' => 'Harissa Maison']]], $j);
+$vote('CD-CCCC-CCCC', '6130008000014', 1);
+$vote('CD-CCCC-CCCC', '6130008000014', -1);
+check('vote changé : 2 − 1 = 1', (int)parCode($db, '6130008000014')['confirmation'] === 1);
+
+// Seuils du .env.
+$_ENV['CONFIRMATION_SEUIL'] = '2';
+$vote('CD-DDDD-DDDD', '6130008000014', 1);
+check('seuil à 2 (.env) : confirmé à 2', (int)parCode($db, '6130008000014')['a_confirmer'] === 0);
+$_ENV['CONFIRMATION_SEUIL'] = '';
+
+$st = Tendance::stats($db, $j);
+check('stats : 2 confirmés, 1 supprimé, plus rien à confirmer', $st['totaux']['confirmes'] === 2 && $st['totaux']['supprimes'] === 1
+    && $st['totaux']['a_confirmer'] === 0);
+$sup = array_values(array_filter($st['contributions'], function ($x) { return $x['action'] === 'supprime'; }))[0];
+check('stats : la suppression avec le nom du produit', $sup['nom'] === 'Jambon de porc' && $sup['etat'] === 'supprime' && $sup['champs'] === []);
 
 // ---- Authentification : licence BENS du poste (POST), jeton du tableau de bord (GET /tendance/stats) --
 require __DIR__ . '/../routes.php';

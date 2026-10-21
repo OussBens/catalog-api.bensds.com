@@ -24,8 +24,9 @@ OCR, scans counted by bens_ds).
 | `POST`/`PUT`/`DELETE /products…`, `/upload-photo`, `/products/{id}/photo`, `/mobile-products`, `/import` | `X-API-Key` = `API_KEY` | writes (refused when `API_KEY` isn't set) |
 | `GET /rayons` | anyone | the sections: names FR/AR/EN, icon, products offered, trending count |
 | `GET /rayons/{code}/products?page=&limit=[&depuis=AAAA-MM-JJ]` | anyone | a page of a section's best products (`depuis`: only those that became trending since that day) |
-| `POST /tendance` | `X-Device-Id` + `X-License-Key` (the PC's signed licence) | a PC's report: `{produits, ventes}` → `{ventes, inconnus, crees, completes}` |
-| `GET /tendance/stats` | `X-Server-Token` = `REV_SERVER_TOKEN` | the bens_ds dashboard's trending data |
+| `POST /tendance` | `X-Device-Id` + `X-License-Key` (the PC's signed licence) | a PC's report: `{produits, confirmations, ventes}` → `{ventes, inconnus, crees, completes, votes, confirmes, supprimes}` |
+| `GET /tendance/stats` | `X-Server-Token` = `REV_SERVER_TOKEN` | the bens_ds dashboard's trending data (with per-day series) |
+| `/admin/*` | `X-Server-Token` = `REV_SERVER_TOKEN` | the catalogue's administration for the BENS dashboard (`catalogue_core/Admin.php`): `GET catalogue`, `GET`/`PUT rayons/{code}`, `POST rayons`, `POST reclasser {depuis}` (≈ 15 s batches), `POST installer`, `POST tendances` (every sold product recomputed now), `GET a-confirmer`, `POST produits/{id}/confirmer`/`supprimer` |
 | `/smartscan/*` | licence (Desktop) or `X-Firebase-Token` (Mobile) | quota, `scan`, `extract`, `demande` (see `smartscan_core/routes.php`) |
 
 ## Configuration (`.env`, never in git)
@@ -41,11 +42,15 @@ OCR, scans counted by bens_ds).
 | `MISTRAL_API_KEY`, `SMARTSCAN_*` | Smart Scan's OCR and its limits |
 | `FIREBASE_PROJECT_ID`, `SMARTSCAN_SECRET` | CaisseDZ Mobile's sign-in, phone fingerprints |
 | `TENDANCE_POSTES_MIN`, `TENDANCE_TICKETS_MIN` | the trending rule (default 3 shops, 20 tickets) |
+| `CONFIRMATION_DEPART`, `CONFIRMATION_SEUIL`, `CONFIRMATION_SUPPRESSION` | a shop-added product's confirmation: starts at 2, confirmed at 5, deleted at 0 |
 
 PHP needs the **sodium** extension (cPanel → Select PHP Version → Extensions).
 
 ## Administration
 
+- **The BENS dashboard** (admin.bensds.com → **Catalogue**) does everything below through `/admin/*`: overview with
+  charts, sections (names, keywords, preview), trending, products to confirm (confirm / delete by hand),
+  maintenance (update tables, re-sort with progress, recompute trends). `admin_rayons.php` stays as a backup.
 - `admin_rayons.php` (password `ADMIN_PASSWORD`): **Rayons** (names, icon, keywords, a preview of each
   section, « Reclasser tout le catalogue » in 20-second batches) and **Tendance** (numbers, best sellers,
   what shops added, « Recalculer les tendances »). Missing tables or columns are installed as soon as it
@@ -60,6 +65,7 @@ No server or MySQL needed (SQLite in memory): `mise run test`, i.e.
 ```
 php catalogue_core/tests/rayons_test.php
 php -d extension=sodium catalogue_core/tests/tendance_test.php
+php -d extension=sodium catalogue_core/tests/admin_test.php
 php -d extension=sodium smartscan_core/tests/licence_bens_test.php
 php -d extension=sodium smartscan_core/tests/smartscan_desktop_test.php
 ```
@@ -137,7 +143,7 @@ tickets}]}` → `{ventes, inconnus, crees, completes}`.
 - `catalog_vente_jour` : tickets par produit, poste (`CD-XXXX-XXXX`) et jour, 50 au plus (une boutique ne
   fait pas la tendance seule) ; renvoyer un jour le remplace. Oubliées après 120 jours.
 - **Fiches des boutiques** (`Contributions.php`) : un code-barres inconnu devient tout de suite un produit
-  du catalogue (`contribue_par` = le poste), rangé dans son rayon ; un produit connu ne reçoit que ses champs
+  du catalogue (`contribue_par` = le poste), rangé dans son rayon, **à confirmer** (voir ci-dessous) ; un produit connu ne reçoit que ses champs
   **vides** (nom, nom arabe, marque, catégorie, codes-barres en plus), jamais remplacés. Chaque création ou
   complément est noté dans `catalog_contribution` (poste, champs).
 - Sur 90 jours : `postes_90j`, `ventes_90j`, `points_tendance` = 1 000 par boutique + 10 par ticket
@@ -148,6 +154,14 @@ tickets}]}` → `{ventes, inconnus, crees, completes}`.
 - `GET /rayons/{code}/products?depuis=AAAA-MM-JJ` : seulement les produits devenus tendance depuis ce jour
   (le poste ajoute ceux des rayons qu'il a déjà téléchargés). Chaque produit porte `nom_ar` et `tendance` ;
   `GET /rayons` ajoute `tendances` par rayon.
+- **Confirmation** (`Confirmations.php`) : un produit créé par une boutique commence avec `confirmation` = 2
+  (`a_confirmer` = 1). Chaque autre boutique qui scanne ce code-barres à la caisse répond « c'est bien ce
+  produit » (+1) ou « ce n'est pas ça » (−1) : `confirmations: [{code_barres, vote}]` dans `POST /tendance`,
+  un vote par poste et par produit (le dernier remplace le précédent), pas celui de la boutique qui l'a créé.
+  À 5 : confirmé pour de bon (`confirme_le`), proposé dans les rayons ; à 0 : supprimé du catalogue (avec ses
+  codes-barres, ventes et votes). À confirmer, il n'est proposé ni dans les rayons ni dans les tendances, mais
+  répond à `GET /products/barcode/{code}` (`a_confirmer`, `confirmation`, `confirmation_seuil`). Votes dans
+  `catalog_confirmation`, confirmations et suppressions notées dans `catalog_contribution`.
 - `nom_ar` : le nom lui-même s'il est en arabe (au reclassement), sinon le premier nom arabe proposé par un
   poste (`nom_ar_poste`), jamais remplacé ensuite.
 - `GET /tendance/stats` (en-tête `X-Server-Token` = `REV_SERVER_TOKEN`, le jeton partagé avec bens_ds) : le

@@ -5,6 +5,7 @@ require __DIR__ . '/../Rayons.php';
 require __DIR__ . '/../RayonsSchema.php';
 require __DIR__ . '/../Tendance.php';
 require __DIR__ . '/../Contributions.php';
+require __DIR__ . '/../Confirmations.php';
 
 $ok = 0;
 $ko = 0;
@@ -96,6 +97,11 @@ check('pas encore installé : pas à jour', RayonsSchema::aJour($db) === false);
 RayonsSchema::installer($db);
 RayonsSchema::installer($db); // idempotent
 check('installé : à jour', RayonsSchema::aJour($db) === true);
+check('version notée', RayonsSchema::versionInstallee($db) === RayonsSchema::VERSION);
+check('assurer : rien à faire quand c\'est à jour', RayonsSchema::assurer($db) === false);
+$db->exec('UPDATE catalog_schema SET version = 1');
+check('assurer : version plus ancienne → installe', RayonsSchema::assurer($db) === true
+    && RayonsSchema::versionInstallee($db) === RayonsSchema::VERSION);
 check('16 rayons installés', (int)$db->query('SELECT COUNT(*) FROM catalog_rayon')->fetchColumn() === 16);
 
 $db->exec("INSERT INTO catalog_category VALUES (1, 'Sans Categorie', NULL), (2, 'Beverages, Sodas', NULL),
