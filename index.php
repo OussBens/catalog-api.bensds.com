@@ -718,7 +718,11 @@ try {
     throw new Exception('Ressource non trouvée', 404);
 
 } catch (Exception $e) {
-    $code = $e->getCode() ?: 500;
+    // Un code SQL (« 42S22 », PDOException) n'est pas un statut HTTP : 500.
+    $code = is_int($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 500;
+    if ($code === 500) {
+        error_log('[catalog-api] ' . $e->getMessage());
+    }
     http_response_code($code);
     echo json_encode([
         'success' => false,

@@ -83,11 +83,15 @@ try {
     error_log('[rayons-admin] ' . $e->getMessage());
     exit('Connexion à la base impossible (voir .env).');
 }
-try {
-    $db->query('SELECT rayon_code, exclu, consultations, score, classe_le FROM catalog_product LIMIT 1');
-    $db->query('SELECT 1 FROM catalog_rayon LIMIT 1');
-} catch (Exception $e) {
-    RayonsSchema::installer($db);
+// Tables ou colonnes manquantes (nouvelle version déployée) : installées dès l'ouverture.
+if (!RayonsSchema::aJour($db)) {
+    try {
+        @set_time_limit(600);
+        RayonsSchema::installer($db);
+    } catch (Exception $e) {
+        error_log('[rayons-admin] installation : ' . $e->getMessage());
+        exit('Mise à jour des tables impossible : ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8'));
+    }
 }
 
 $message = $_SESSION['message'] ?? '';
@@ -135,8 +139,14 @@ if ($page === 'reclasser' && hash_equals($_SESSION['csrf'] ?? '', (string)($_GET
     $depuis = (int)($_GET['depuis'] ?? 0);
     $rayons = Rayons::preparer($db);
     $fin = time() + 20;
-    while (time() < $fin && ($dernier = Rayons::reclasser($db, $depuis, 5000, $rayons)) !== null) {
-        $depuis = $dernier;
+    try {
+        while (time() < $fin && ($dernier = Rayons::reclasser($db, $depuis, 5000, $rayons)) !== null) {
+            $depuis = $dernier;
+        }
+    } catch (Exception $e) {
+        error_log('[rayons-admin] reclassement : ' . $e->getMessage());
+        exit('Reclassement interrompu (id ' . (int)$depuis . ') : ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8')
+            . ' — <a href="?page=rayons">retour</a> (« Installer / mettre à jour les tables », puis relancer).');
     }
     $reste = (int)$db->query("SELECT COUNT(*) FROM catalog_product WHERE id > $depuis")->fetchColumn();
     $reclassement = ['depuis' => $depuis, 'reste' => $reste];

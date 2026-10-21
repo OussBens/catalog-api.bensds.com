@@ -92,8 +92,10 @@ $db->exec('CREATE TABLE catalog_brand (id INTEGER PRIMARY KEY, nom TEXT)');
 $db->exec('CREATE TABLE catalog_product (id INTEGER PRIMARY KEY, code_produit TEXT, nom TEXT, brand_id INTEGER,
            category_id INTEGER, photo TEXT)');
 $db->exec('CREATE TABLE catalog_product_barcode (id INTEGER PRIMARY KEY, product_id INTEGER, barcode TEXT)');
+check('pas encore installé : pas à jour', RayonsSchema::aJour($db) === false);
 RayonsSchema::installer($db);
 RayonsSchema::installer($db); // idempotent
+check('installé : à jour', RayonsSchema::aJour($db) === true);
 check('16 rayons installés', (int)$db->query('SELECT COUNT(*) FROM catalog_rayon')->fetchColumn() === 16);
 
 $db->exec("INSERT INTO catalog_category VALUES (1, 'Sans Categorie', NULL), (2, 'Beverages, Sodas', NULL),

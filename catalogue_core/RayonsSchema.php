@@ -17,6 +17,40 @@
  */
 class RayonsSchema
 {
+    const COLONNES_PRODUIT = [
+        'rayon_code VARCHAR(40) NULL',
+        'exclu TINYINT NOT NULL DEFAULT 0',
+        'consultations INT NOT NULL DEFAULT 0',
+        'score INT NOT NULL DEFAULT 0',
+        'classe_le DATETIME NULL',
+        'nom_ar VARCHAR(200) NULL',
+        'nom_ar_poste VARCHAR(20) NULL',
+        'postes_90j INT NOT NULL DEFAULT 0',
+        'ventes_90j INT NOT NULL DEFAULT 0',
+        'points_tendance INT NOT NULL DEFAULT 0',
+        'tendance TINYINT NOT NULL DEFAULT 0',
+        'tendance_le DATETIME NULL',
+        'tendance_maj DATE NULL',
+        'contribue_par VARCHAR(20) NULL',
+    ];
+
+    const TABLES = ['catalog_rayon', 'catalog_vente_jour', 'catalog_contribution', 'catalog_poste'];
+
+    /** Toutes les tables et colonnes sont-elles là ? (Sinon : installer.) */
+    public static function aJour(PDO $db)
+    {
+        try {
+            $colonnes = implode(', ', array_map(function ($d) { return strtok($d, ' '); }, self::COLONNES_PRODUIT));
+            $db->query("SELECT $colonnes FROM catalog_product LIMIT 1");
+            foreach (self::TABLES as $t) {
+                $db->query("SELECT 1 FROM $t LIMIT 1");
+            }
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
     public static function installer(PDO $db)
     {
         $mysql = $db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
@@ -35,21 +69,9 @@ class RayonsSchema
             actif TINYINT NOT NULL DEFAULT 1
         )$moteur");
 
-        self::ajouterColonne($db, 'catalog_product', 'rayon_code VARCHAR(40) NULL');
-        self::ajouterColonne($db, 'catalog_product', 'exclu TINYINT NOT NULL DEFAULT 0');
-        self::ajouterColonne($db, 'catalog_product', 'consultations INT NOT NULL DEFAULT 0');
-        self::ajouterColonne($db, 'catalog_product', 'score INT NOT NULL DEFAULT 0');
-        self::ajouterColonne($db, 'catalog_product', 'classe_le DATETIME NULL');
-        // Tendance (catalogue_core/Tendance.php) et nom arabe.
-        self::ajouterColonne($db, 'catalog_product', 'nom_ar VARCHAR(200) NULL');
-        self::ajouterColonne($db, 'catalog_product', 'nom_ar_poste VARCHAR(20) NULL');
-        self::ajouterColonne($db, 'catalog_product', 'postes_90j INT NOT NULL DEFAULT 0');
-        self::ajouterColonne($db, 'catalog_product', 'ventes_90j INT NOT NULL DEFAULT 0');
-        self::ajouterColonne($db, 'catalog_product', 'points_tendance INT NOT NULL DEFAULT 0');
-        self::ajouterColonne($db, 'catalog_product', 'tendance TINYINT NOT NULL DEFAULT 0');
-        self::ajouterColonne($db, 'catalog_product', 'tendance_le DATETIME NULL');
-        self::ajouterColonne($db, 'catalog_product', 'tendance_maj DATE NULL');
-        self::ajouterColonne($db, 'catalog_product', 'contribue_par VARCHAR(20) NULL');
+        // Colonnes de catalog_product (tri, tendance, nom arabe, contributions) : les manquantes sont ajoutées
+        // d'un seul ALTER TABLE (une seule reconstruction de la table de ~615 000 produits).
+        self::ajouterColonnes($db, 'catalog_product', self::COLONNES_PRODUIT);
         $auto = $mysql ? 'INT AUTO_INCREMENT PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
         $db->exec("CREATE TABLE IF NOT EXISTS catalog_contribution (
             id $auto,
@@ -104,15 +126,27 @@ class RayonsSchema
         }
     }
 
-    private static function ajouterColonne(PDO $db, $table, $definition)
+    /** Ajoute à [table] les colonnes [definitions] qui manquent : un seul ALTER TABLE en MySQL. */
+    private static function ajouterColonnes(PDO $db, $table, array $definitions)
     {
-        $colonne = strtok($definition, ' ');
-        try {
-            $db->query("SELECT $colonne FROM $table LIMIT 1");
-            return false;
-        } catch (Exception $e) {
-            $db->exec("ALTER TABLE $table ADD COLUMN $definition");
-            return true;
+        $manquantes = [];
+        foreach ($definitions as $definition) {
+            $colonne = strtok($definition, ' ');
+            try {
+                $db->query("SELECT $colonne FROM $table LIMIT 1");
+            } catch (Exception $e) {
+                $manquantes[] = $definition;
+            }
+        }
+        if (!$manquantes) {
+            return;
+        }
+        if ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $db->exec("ALTER TABLE $table " . implode(', ', array_map(function ($d) { return "ADD COLUMN $d"; }, $manquantes)));
+        } else {
+            foreach ($manquantes as $d) {
+                $db->exec("ALTER TABLE $table ADD COLUMN $d");
+            }
         }
     }
 }
