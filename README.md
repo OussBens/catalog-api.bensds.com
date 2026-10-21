@@ -1,73 +1,68 @@
-# CaisseDZ Catalog API: move to catalog-api.bensds.com
+# CaisseDZ Catalog API — catalog-api.bensds.com
 
-The API moved from `https://bensds.com/catalog-api` to its own subdomain, **`https://catalog-api.bensds.com`**, because `public_html` (bensds.com) now holds the BENS Digital Solutions website.
+The product catalogue behind CaisseDZ (Desktop and Mobile): plain PHP 8 + MySQL on the bensds.com
+cPanel account. About 615,000 products (Open Food / Beauty Facts imports, then what CaisseDZ shops add),
+sorted into 16 sections (« rayons »), ranked by what sells in the shops. It also runs Smart Scan (receipt
+OCR, scans counted by bens_ds).
 
-| | Before | After |
+- **Barcode lookup** for the apps (`GET /products/barcode/{code}`).
+- **Sections** offered when a PC is set up: each section's 5,000 best-ranked products, pork and alcohol
+  left out (`catalogue_core/Rayons.php`).
+- **Trending**: each CaisseDZ Desktop PC reports its tickets per barcode and the product sheets it typed;
+  products sold in 3+ shops and 20+ tickets over 90 days are trending; unknown barcodes become catalogue
+  products, known ones get their empty fields filled (`catalogue_core/Tendance.php`, `Contributions.php`).
+  The bens_ds dashboard shows it (Official apps → CaisseDZ → Trending).
+- **Smart Scan** for Desktop (signed BENS licence) and Mobile (Firebase sign-in) (`smartscan_core/`).
+
+## Endpoints
+
+| Route | Who | |
 |---|---|---|
-| Address | `https://bensds.com/catalog-api` | `https://catalog-api.bensds.com` |
-| Folder on the server | `/home/bensds64/public_html/catalog-api` | `/home/bensds64/caissedz/catalog-api.bensds.com` |
+| `GET /` | anyone | API info, database status |
+| `GET /products`, `/products/{id}`, `/products/barcode/{code}` | anyone | products (50 a page), one product, a barcode lookup (counted in the ranking) |
+| `GET /brands`, `/categories` | anyone | lists |
+| `POST`/`PUT`/`DELETE /products…`, `/upload-photo`, `/products/{id}/photo`, `/mobile-products`, `/import` | `X-API-Key` = `API_KEY` | writes (refused when `API_KEY` isn't set) |
+| `GET /rayons` | anyone | the sections: names FR/AR/EN, icon, products offered, trending count |
+| `GET /rayons/{code}/products?page=&limit=[&depuis=AAAA-MM-JJ]` | anyone | a page of a section's best products (`depuis`: only those that became trending since that day) |
+| `POST /tendance` | `X-Device-Id` + `X-License-Key` (the PC's signed licence) | a PC's report: `{produits, ventes}` → `{ventes, inconnus, crees, completes}` |
+| `GET /tendance/stats` | `X-Server-Token` = `REV_SERVER_TOKEN` | the bens_ds dashboard's trending data |
+| `/smartscan/*` | licence (Desktop) or `X-Firebase-Token` (Mobile) | quota, `scan`, `extract`, `demande` (see `smartscan_core/routes.php`) |
 
-The endpoints are the same. Only the start of the address changes:
+## Configuration (`.env`, never in git)
 
-| Before | After |
+| Key | |
 |---|---|
-| `https://bensds.com/catalog-api/products` | `https://catalog-api.bensds.com/products` |
-| `https://bensds.com/catalog-api/products/barcode/{code}` | `https://catalog-api.bensds.com/products/barcode/{code}` |
-| `https://bensds.com/catalog-api/index.php/products` | `https://catalog-api.bensds.com/index.php/products` (both forms still work) |
+| `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` (or `DB_DSN`) | the MySQL database |
+| `API_URL` | `https://catalog-api.bensds.com` (photo links are built from it) |
+| `API_KEY` | the key for writes (`X-API-Key`) |
+| `ADMIN_PASSWORD` | `admin_rayons.php` and `admin_smartscan.php` |
+| `LICENSE_PUBLIC_KEY`, `LICENSE_PRODUCT` | checking the PCs' signed licences (bens_ds dashboard → Licence products → CaisseDZ Desktop) |
+| `REV_API_URL`, `REV_SERVER_TOKEN` | bens_ds (`https://bensds.com/api`) and the token shared with it (Smart Scan counting, dashboard stats) |
+| `MISTRAL_API_KEY`, `SMARTSCAN_*` | Smart Scan's OCR and its limits |
+| `FIREBASE_PROJECT_ID`, `SMARTSCAN_SECRET` | CaisseDZ Mobile's sign-in, phone fingerprints |
+| `TENDANCE_POSTES_MIN`, `TENDANCE_TICKETS_MIN` | the trending rule (default 3 shops, 20 tickets) |
 
-The same applies to `/products/{id}`, `/products/{id}/photo`, `/upload-photo`, `/mobile-products`, `/import`, `/brands` and `/categories`.
+PHP needs the **sodium** extension (cPanel → Select PHP Version → Extensions).
 
-## What was changed in this folder
+## Administration
 
-Only what the new address needs. Nothing else was touched.
+- `admin_rayons.php` (password `ADMIN_PASSWORD`): **Rayons** (names, icon, keywords, a preview of each
+  section, « Reclasser tout le catalogue » in 20-second batches) and **Tendance** (numbers, best sellers,
+  what shops added, « Recalculer les tendances »). Missing tables or columns are installed as soon as it
+  opens.
+- `admin_smartscan.php`: Smart Scan's clients, quotas and scans.
+- From SSH: `php catalogue_core/reclasser.php` (the whole catalogue).
 
-**`.htaccess`.** The app now sits at the root of its subdomain, not under `/catalog-api/`.
-- `RewriteBase /catalog-api/` became `RewriteBase /`.
-- `RedirectMatch 403 ^/catalog-api/(config|models|controllers|services|middleware)/.*$` became `RedirectMatch 403 ^/(config|models|controllers|services|middleware)/.*$`.
+## Tests
 
-**`.env`.**
-- `API_URL="https://catalog-api.bensds.com"`
-- `UPLOAD_PATH="/home/bensds64/caissedz/catalog-api.bensds.com/uploads/"`
-- `UPLOAD_URL="https://catalog-api.bensds.com/uploads/"`
+No server or MySQL needed (SQLite in memory): `mise run test`, i.e.
 
-**`index.php`.** The fallback address used when `.env` has no `API_URL` (lines 21, 161 and 319) is now `https://catalog-api.bensds.com`. New photo links are built from `API_URL`, so they now start with `https://catalog-api.bensds.com/uploads/photos/…`.
-
-## On the server (cPanel)
-
-1. Under **Domains**, create `catalog-api.bensds.com` with document root `/home/bensds64/caissedz/catalog-api.bensds.com`. Then run **SSL/TLS Status → Run AutoSSL**. HTTPS is required: bensds.com sends HSTS with `includeSubDomains`, so browsers refuse plain http on every subdomain.
-2. Extract this zip into `/home/bensds64/caissedz/`, which gives `/home/bensds64/caissedz/catalog-api.bensds.com/`.
-3. **Fix the photo links already in the database.** Each photo's full address is saved in `catalog_product.photo`. In phpMyAdmin, on `bensds64_caissedz_catalogue`, run:
-   ```sql
-   UPDATE catalog_product
-   SET photo = REPLACE(photo, 'https://bensds.com/catalog-api/', 'https://catalog-api.bensds.com/')
-   WHERE photo LIKE 'https://bensds.com/catalog-api/%';
-   ```
-4. Open `https://catalog-api.bensds.com/`. It should answer `"CaisseDZ Catalog API"` with `"database": "Connectée"`. Then open `https://catalog-api.bensds.com/products` and one photo link.
-5. If a **cron job** in cPanel runs a script from `/home/bensds64/public_html/catalog-api/`, change its path to `/home/bensds64/caissedz/catalog-api.bensds.com/`.
-6. Once everything works, delete `/home/bensds64/public_html/catalog-api`.
-
-## What the app developer has to change
-
-- **The API base URL in every client** (the mobile app, CaisseDZ desktop, any script or tool): change `https://bensds.com/catalog-api` to `https://catalog-api.bensds.com`. Installed copies that still use the old address stop working once the old folder is removed, so ship the update first.
-- **Saved photo links on the client side.** If an app keeps product data offline (local database or cache), photo links that start with `https://bensds.com/catalog-api/` must be refreshed from the API or rewritten the same way as the SQL above.
-- **Any hard-coded paths** in the developer's own scripts, notes or docs that use `/home/bensds64/public_html/catalog-api`.
-- The comments at the top of the helper scripts (`install-*.php`, `import-*.php`, `test-*.php`, …) and the link in `test-upload.php` still mention the old address. They were left as they were (see below).
-
-## Security issues noticed (not changed)
-
-These were found while looking through the folder and have **not** been fixed. The app shares a hosting account with bensds.com, so a weakness here affects that website too.
-
-1. **No authentication on the API.** Anyone on the internet can create, change and delete products (`POST`/`PUT`/`DELETE /products`), upload photos (`/upload-photo`, `/products/{id}/photo`), import CSVs (`/import`) and add products (`/mobile-products`). `middleware/AuthMiddleware.php` and `auth.php` exist, but `index.php` never uses them. `API_KEY` and `JWT_SECRET` are in `.env` but unused. At minimum, every request that changes data should require a secret key (in a header, never in the URL) that the apps send.
-2. **Helper scripts anyone can open in a browser.** They should be deleted from the server (keep a copy offline) or moved outside the web folder:
-   - `install-*.php` (11 files), `install-composer-fixed.php`, `download-deps.php`, `create-autoload.php`
-   - `diagnostic.php`, `test-api.php`, `test-upload.php`, `index_old.php`
-   - `import-*.php`, `import_data.php`, `run-import.php`, `analyze-csv.php`, `delete-no-photo.php`
-   - `composer.phar`
-3. **The import/delete scripts' password is public.** It is `import2026`, written in the scripts' own comments. `delete-no-photo.php` even prints it in its "access protected" message. That script can delete products.
-4. **The 160 MB `en.openbeautyfacts.org.products.csv` can be downloaded by anyone.** It also uses disk space on the hosting plan. Move it off the server once the import is done.
-5. **Errors are shown to visitors.** `index.php` sets `ini_set('display_errors', 1)`, which can reveal server paths and SQL details. Use `0` in production.
-6. **`.composer/`** (Composer cache and `auth.json`) sits inside the web folder. Its `.htaccess` denies access, which is good. It is not needed at runtime and can be deleted.
-7. **Uploads.** `uploads/.htaccess` blocks script execution in the photo folder. Keep that file. The `/upload-photo` route keeps the file extension sent by the client: the real type is checked, but use the detected type's extension, as `/products/{id}/photo` already does.
+```
+php catalogue_core/tests/rayons_test.php
+php -d extension=sodium catalogue_core/tests/tendance_test.php
+php -d extension=sodium smartscan_core/tests/licence_bens_test.php
+php -d extension=sodium smartscan_core/tests/smartscan_desktop_test.php
+```
 
 ## CaisseDZ : licences signées (Desktop) et Smart Scans comptés par bens_ds (2026-10-19)
 
@@ -187,8 +182,10 @@ mise run deploy -- --all         # every deployable file (e.g. a fresh folder)
 - **After:** checks that the API answers and prints what to do on the host (new `.env` keys,
   « Installer / mettre à jour les tables », « Reclasser »).
 
-**Setup, once.** The connection lives in your environment, never in the repo; each variable falls
-back on bens_ds's `BENS_FTP_*` (same cPanel account):
+**Setup, once.** The connection lives in your environment, never in the repo. Without
+`CATALOG_FTP_USER`, each variable falls back on bens_ds's `BENS_FTP_*` (the catalogue on bens_ds's FTP
+account); with its own account (`osm-catalog@catalog-api.bensds.com`), the catalogue uses only its own
+password, saved apart from bens_ds's (`%USERPROFILE%\.bens\catalog-ftp-pass` vs `ftp-pass`):
 
 | Variable | |
 |---|---|
@@ -201,6 +198,84 @@ back on bens_ds's `BENS_FTP_*` (same cPanel account):
 - **Arch Linux:** `sudo pacman -S mise lftp git curl`; the variables in `~/.bashrc`; then
   `git pull && mise run deploy`.
 - **Windows:** WSL with `sudo apt install lftp git curl`; the variables in Windows (`setx
-  CATALOG_FTP_HOST …`); the password with `mise run depwin-pass` (saved encrypted for your
-  Windows user), then `mise run depwin`.
+  CATALOG_FTP_HOST …`); the password with `mise run depwin-pass` **from this folder** (saved encrypted
+  for your Windows user, asked once), then `mise run depwin`. Run from bens_ds's folder, the same command
+  saves bens_ds's password instead.
+- **After a deploy that changes tables:** open `admin_rayons.php`; missing tables or columns are added
+  as soon as it opens (or « Installer / mettre à jour les tables »), then « Reclasser tout le catalogue ».
 - **Tests:** `mise run test`.
+
+## Security
+
+Found when the folder was first looked through (2026-10), and where they stand:
+
+1. **No authentication on the API** — fixed: every write needs `X-API-Key` (refused when `API_KEY`
+   isn't set); `/tendance` and `/smartscan` check the PC's signed licence; `/tendance/stats` needs
+   `REV_SERVER_TOKEN`.
+2. **Helper scripts open to anyone** (`install-*.php`, `import-*.php`, `test-*.php`, `diagnostic.php`,
+   `index_old.php`, `delete-no-photo.php`, `composer.phar`…) — not in this repository (the deploy never
+   sends them). Check the server and delete any still there.
+3. **The import/delete scripts' password (`import2026`) is public** — those scripts aren't in the
+   repository; delete them from the server if they're still there.
+4. **The 160 MB Open Beauty Facts CSV can be downloaded** — `*.csv` is ignored by git; delete it from
+   the server once imports are done.
+5. **Errors shown to visitors** — fixed: `display_errors` is `0` in `index.php` and the admin pages;
+   errors go to `error_log`, and the API answers JSON (500) instead of a blank page.
+6. **`.composer/` in the web folder** — not needed at runtime; delete it from the server if present.
+7. **Uploads** — `uploads/.htaccess` blocks scripts in the photo folder (keep it); an uploaded photo's
+   extension comes from its real type.
+
+## History: the move to catalog-api.bensds.com (2026-10)
+
+The API moved from `https://bensds.com/catalog-api` to its own subdomain, **`https://catalog-api.bensds.com`**, because `public_html` (bensds.com) now holds the BENS Digital Solutions website.
+
+| | Before | After |
+|---|---|---|
+| Address | `https://bensds.com/catalog-api` | `https://catalog-api.bensds.com` |
+| Folder on the server | `/home/bensds64/public_html/catalog-api` | `/home/bensds64/caissedz/catalog-api.bensds.com` |
+
+The endpoints are the same. Only the start of the address changes:
+
+| Before | After |
+|---|---|
+| `https://bensds.com/catalog-api/products` | `https://catalog-api.bensds.com/products` |
+| `https://bensds.com/catalog-api/products/barcode/{code}` | `https://catalog-api.bensds.com/products/barcode/{code}` |
+| `https://bensds.com/catalog-api/index.php/products` | `https://catalog-api.bensds.com/index.php/products` (both forms still work) |
+
+The same applies to `/products/{id}`, `/products/{id}/photo`, `/upload-photo`, `/mobile-products`, `/import`, `/brands` and `/categories`.
+
+### What was changed in this folder
+
+Only what the new address needs. Nothing else was touched.
+
+**`.htaccess`.** The app now sits at the root of its subdomain, not under `/catalog-api/`.
+- `RewriteBase /catalog-api/` became `RewriteBase /`.
+- `RedirectMatch 403 ^/catalog-api/(config|models|controllers|services|middleware)/.*$` became `RedirectMatch 403 ^/(config|models|controllers|services|middleware)/.*$`.
+
+**`.env`.**
+- `API_URL="https://catalog-api.bensds.com"`
+- `UPLOAD_PATH="/home/bensds64/caissedz/catalog-api.bensds.com/uploads/"`
+- `UPLOAD_URL="https://catalog-api.bensds.com/uploads/"`
+
+**`index.php`.** The fallback address used when `.env` has no `API_URL` (lines 21, 161 and 319) is now `https://catalog-api.bensds.com`. New photo links are built from `API_URL`, so they now start with `https://catalog-api.bensds.com/uploads/photos/…`.
+
+### On the server (cPanel)
+
+1. Under **Domains**, create `catalog-api.bensds.com` with document root `/home/bensds64/caissedz/catalog-api.bensds.com`. Then run **SSL/TLS Status → Run AutoSSL**. HTTPS is required: bensds.com sends HSTS with `includeSubDomains`, so browsers refuse plain http on every subdomain.
+2. Extract this zip into `/home/bensds64/caissedz/`, which gives `/home/bensds64/caissedz/catalog-api.bensds.com/`.
+3. **Fix the photo links already in the database.** Each photo's full address is saved in `catalog_product.photo`. In phpMyAdmin, on `bensds64_caissedz_catalogue`, run:
+   ```sql
+   UPDATE catalog_product
+   SET photo = REPLACE(photo, 'https://bensds.com/catalog-api/', 'https://catalog-api.bensds.com/')
+   WHERE photo LIKE 'https://bensds.com/catalog-api/%';
+   ```
+4. Open `https://catalog-api.bensds.com/`. It should answer `"CaisseDZ Catalog API"` with `"database": "Connectée"`. Then open `https://catalog-api.bensds.com/products` and one photo link.
+5. If a **cron job** in cPanel runs a script from `/home/bensds64/public_html/catalog-api/`, change its path to `/home/bensds64/caissedz/catalog-api.bensds.com/`.
+6. Once everything works, delete `/home/bensds64/public_html/catalog-api`.
+
+### What the app developer had to change
+
+- **The API base URL in every client** (the mobile app, CaisseDZ desktop, any script or tool): change `https://bensds.com/catalog-api` to `https://catalog-api.bensds.com`. Installed copies that still use the old address stop working once the old folder is removed, so ship the update first.
+- **Saved photo links on the client side.** If an app keeps product data offline (local database or cache), photo links that start with `https://bensds.com/catalog-api/` must be refreshed from the API or rewritten the same way as the SQL above.
+- **Any hard-coded paths** in the developer's own scripts, notes or docs that use `/home/bensds64/public_html/catalog-api`.
+- The comments at the top of the helper scripts (`install-*.php`, `import-*.php`, `test-*.php`, …) and the link in `test-upload.php` still mention the old address. They were left as they were (see below).
