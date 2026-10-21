@@ -10,7 +10,8 @@
  *   POST /smartscan/supprimer-compte  suppression du compte mobile (jeton Firebase)
  *
  * Authentification :
- *   desktop  X-Device-Id + X-License-Key (licence Caisse DZ du poste) ;
+ *   desktop  X-Device-Id (identifiant brut du poste) + X-License-Key (licence BENS signée du poste) ;
+ *            ses scans sont comptés par bens_ds (REV_API_URL, REV_SERVER_TOKEN) ;
  *   mobile   X-Firebase-Token (jeton d'identité Firebase, connexion par SMS).
  * Nom de l'entreprise (facultatif) : X-Entreprise, encodé URL.
  */
@@ -18,6 +19,8 @@
 require_once __DIR__ . '/SmartScanService.php';
 require_once __DIR__ . '/SmartScanSchema.php';
 require_once __DIR__ . '/FirebaseToken.php';
+require_once __DIR__ . '/LicenceBens.php';
+require_once __DIR__ . '/RevBens.php';
 
 function smartscanEnv($cle, $defaut)
 {
@@ -52,7 +55,11 @@ function smartscanService(PDO $db)
     };
 
     return new SmartScanService($db, [
-        'secret_licence' => $_ENV['LICENSE_SECRET'] ?? '',
+        // SMARTSCAN_SECRET : empreintes des numéros mobiles (l'ancien LICENSE_SECRET en attendant).
+        'secret_licence' => smartscanEnv('SMARTSCAN_SECRET', $_ENV['LICENSE_SECRET'] ?? ''),
+        'cle_publique' => trim(smartscanEnv('LICENSE_PUBLIC_KEY', '')),
+        'produit_licence' => (int)smartscanEnv('LICENSE_PRODUCT', 1),
+        'rev' => new RevBens(smartscanEnv('REV_API_URL', ''), smartscanEnv('REV_SERVER_TOKEN', '')),
         'firebase' => new FirebaseToken($_ENV['FIREBASE_PROJECT_ID'] ?? ''),
         'rate_par_minute' => (int)smartscanEnv('SMARTSCAN_RATE_PAR_MINUTE', 6),
         'max_simultanes' => (int)smartscanEnv('SMARTSCAN_MAX_SIMULTANES', 1),
@@ -105,7 +112,7 @@ function smartscanRoute(PDO $db, $action, $method)
             : $service->authentifier($_SERVER['HTTP_X_DEVICE_ID'] ?? '', $_SERVER['HTTP_X_LICENSE_KEY'] ?? '', $entreprise);
 
         if ($action === 'quota' && $method === 'GET') {
-            smartscanRepondre(200, ['success' => true, 'quota' => $service->quota((int)$poste['client_id'])]);
+            smartscanRepondre(200, ['success' => true, 'quota' => $service->quota((int)$poste['client_id'], $poste['device_id'])]);
             return;
         }
         if ($method !== 'POST') {

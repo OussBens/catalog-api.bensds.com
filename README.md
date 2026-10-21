@@ -68,3 +68,107 @@ These were found while looking through the folder and have **not** been fixed. T
 5. **Errors are shown to visitors.** `index.php` sets `ini_set('display_errors', 1)`, which can reveal server paths and SQL details. Use `0` in production.
 6. **`.composer/`** (Composer cache and `auth.json`) sits inside the web folder. Its `.htaccess` denies access, which is good. It is not needed at runtime and can be deleted.
 7. **Uploads.** `uploads/.htaccess` blocks script execution in the photo folder. Keep that file. The `/upload-photo` route keeps the file extension sent by the client: the real type is checked, but use the detected type's extension, as `/products/{id}/photo` already does.
+
+## CaisseDZ : licences signées (Desktop) et Smart Scans comptés par bens_ds (2026-10-19)
+
+Desktop — Plans & Pricing : CaisseDZ Desktop s'authentifie avec sa **licence BENS signée** et ses
+Smart Scans sont **comptés par bens_ds** (scans inclus de la formule, de l'essai et des packs, chacun
+avec sa date de fin ; les inclus d'abord, puis le pack qui expire le plus tôt). CaisseDZ Mobile aussi,
+au compte de son numéro (celui de la connexion Firebase) : les forfaits mensuels `ss_forfaits` /
+`ss_abonnements` ne donnent plus de scans (l'essai, MOB-STD et les packs MOB-SSP-* sont dans bens_ds).
+
+- `smartscan_core/LicenceBens.php` : vérifie la clé (Ed25519, sodium) pour le poste de `X-Device-Id`,
+  comme l'application ; l'ancienne clé SHA-256 est refusée.
+- `smartscan_core/RevBens.php` : réserve un scan chez bens_ds avant l'OCR, le confirme si du texte est
+  lu, le libère sinon (non compté). `GET /smartscan/quota` renvoie le solde (`limit`, `remaining`,
+  `buckets`, `expiring_soon`).
+- Retirés : `analyze-csv.php`, `auth.php`, `create-autoload.php`, `diagnostic.php`, `download-deps.php`
+  (à supprimer aussi sur le serveur). L'extension des photos envoyées vient de leur type réel.
+
+**`.env`** (en plus) :
+
+```
+LICENSE_PUBLIC_KEY="…"      # tableau de bord → Licence products → CaisseDZ Desktop → clé publique
+LICENSE_PRODUCT="1"         # son numéro
+REV_API_URL="https://bensds.com/api"
+REV_SERVER_TOKEN="…"        # le même que dans le .env de bens_ds
+SMARTSCAN_SECRET="…"        # l'ancien LICENSE_SECRET (empreintes des numéros mobiles), puis supprimer LICENSE_SECRET
+```
+
+PHP : extension **sodium** activée (cPanel → Select PHP Version → Extensions). Après l'envoi, ouvrir
+l'administration et cliquer « Installer / mettre à jour les tables » (colonne `ss_scans.rev_reservation`).
+
+**Tests** (sans serveur ni base MySQL) :
+
+```
+php -d extension=sodium smartscan_core/tests/licence_bens_test.php     # vecteurs partagés avec bens_ds
+php -d extension=sodium smartscan_core/tests/smartscan_desktop_test.php # licence, quota, réservation
+```
+
+## Rayons : sections proposées à l'accueil de CaisseDZ Desktop (2026-10-20)
+
+Les 50 000 catégories brutes (Open Food / Beauty Facts, en plusieurs langues) ne peuvent pas être
+montrées telles quelles. Chaque produit est rangé dans l'un des **16 rayons** (`catalog_rayon` : noms
+FR/AR/EN, icône Lucide, mots-clés), et le **porc et l'alcool sont exclus** (`catalog_product.exclu`).
+Chaque rayon propose ses **2 000 produits les mieux classés** : `score` = recherches par code-barres
+× 100 (toutes les installations, compté par `GET /products/barcode/{code}`) + 50 si code-barres
+algérien (613…) + 10 s'il a une photo.
+
+- `GET /rayons` : `{plafond, rayons: [{code, nom_fr, nom_ar, nom_en, icone, ordre, produits}]}`.
+- `GET /rayons/{code}/products?page=1&limit=500` : `{rayon, total, page, limit, total_pages,
+  products: [{id, code_barres, codes_barres, nom, marque, photo}]}`.
+- Code : `catalogue_core/` (`Rayons.php` tri, exclusion, classement ; `RayonsSchema.php` tables ;
+  `routes.php`), administration `admin_rayons.php` (même mot de passe que Smart Scan).
+
+**Mise en service**
+
+1. Envoyer `catalogue_core/`, `admin_rayons.php` et `index.php`.
+2. Ouvrir `admin_rayons.php` (les tables s'installent seules), puis **Reclasser tout le catalogue**
+   (la page se recharge par lots de 20 s jusqu'à la fin), ou en SSH : `php catalogue_core/reclasser.php`.
+3. Vérifier `https://catalog-api.bensds.com/rayons`.
+4. À refaire après un import de produits ou un changement de mots-clés (ou en tâche cron, la nuit,
+   pour rafraîchir le classement : `php /home/bensds64/caissedz/catalog-api.bensds.com/catalogue_core/reclasser.php`).
+
+**Tests** : `php catalogue_core/tests/rayons_test.php` (sans serveur ni MySQL).
+
+## Deploying (`mise run deploy` / `mise run depwin`)
+
+Only what is **committed** goes up, and only the files that changed in git since the version live
+on the host (it keeps that commit in `.deploy-rev`, refused to visitors). Whoever deploys next,
+from Windows or Linux, compares with the same version: commit, `git push`, then deploy.
+
+```
+mise run deploy -- --dry-run     # what would go up / be removed, nothing sent
+mise run deploy                  # Linux (Arch)
+mise run depwin                  # Windows (runs the same script in WSL)
+mise run deploy -- --all         # every deployable file (e.g. a fresh folder)
+```
+
+- **Never sent:** `.env*`, `.git*`, `*.md`, `mise.toml`, `tool/`, `build/`, `tests/` folders,
+  `uploads/photos/`. **Never deleted** on the host, except files deleted in git since the live
+  version (never `vendor/`).
+- **Order:** a folder's `.htaccess` first, `index.php` / `admin_*.php` / the root `.htaccess` last;
+  each file replaces the old one only once complete; the first failure stops it and the live
+  version isn't changed, so running it again sends everything again.
+- **Refused** if the host runs a commit your clone doesn't have (`git pull` first), or if HEAD
+  doesn't contain it (`--force` to override). Uncommitted or unpushed work is listed.
+- **After:** checks that the API answers and prints what to do on the host (new `.env` keys,
+  « Installer / mettre à jour les tables », « Reclasser »).
+
+**Setup, once.** The connection lives in your environment, never in the repo; each variable falls
+back on bens_ds's `BENS_FTP_*` (same cPanel account):
+
+| Variable | |
+|---|---|
+| `CATALOG_FTP_HOST` | the FTP server |
+| `CATALOG_FTP_USER` | the FTP account |
+| `CATALOG_FTP_PASS_CMD` | a command printing the password (e.g. `pass show bensds/ftp`) |
+| `CATALOG_FTP_DIR` | the API's folder as that account sees it (default `caissedz/catalog-api.bensds.com`) |
+| `CATALOG_URL` | default `https://catalog-api.bensds.com` |
+
+- **Arch Linux:** `sudo pacman -S mise lftp git curl`; the variables in `~/.bashrc`; then
+  `git pull && mise run deploy`.
+- **Windows:** WSL with `sudo apt install lftp git curl`; the variables in Windows (`setx
+  CATALOG_FTP_HOST …`); the password with `mise run depwin-pass` (saved encrypted for your
+  Windows user), then `mise run depwin`.
+- **Tests:** `mise run test`.

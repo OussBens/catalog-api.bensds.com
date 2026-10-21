@@ -76,7 +76,8 @@ class SmartScanSchema
                 extractions INT NOT NULL DEFAULT 0,
                 code_erreur VARCHAR(60) NULL,
                 message_erreur VARCHAR(255) NULL,
-                erreur_extraction VARCHAR(60) NULL
+                erreur_extraction VARCHAR(60) NULL,
+                rev_reservation VARCHAR(40) NULL
             )$moteur",
             // Comptes mobiles supprimés : empreinte du numéro et début de l'essai déjà utilisé,
             // pour qu'une réinscription avec le même numéro ne redonne pas d'essai gratuit.
@@ -116,6 +117,8 @@ class SmartScanSchema
         self::ajouterColonne($db, 'ss_forfaits', 'essai TINYINT NOT NULL DEFAULT 0');
         self::ajouterColonne($db, 'ss_clients', "plateforme VARCHAR(10) NOT NULL DEFAULT 'desktop'");
         self::ajouterColonne($db, 'ss_clients', 'essai_debut DATE NULL');
+        // CaisseDZ Desktop : la réservation du scan chez bens_ds (confirmée ou libérée à la fin).
+        self::ajouterColonne($db, 'ss_scans', 'rev_reservation VARCHAR(40) NULL');
         if ($migration) {
             // Anciens forfaits (60 scans gratuits sans limite de durée, offre 200) : remplacés
             // par l'essai de 3 mois et les offres 6 / 12 mois. Les abonnements en cours restent valables.

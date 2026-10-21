@@ -113,6 +113,8 @@ function requireApiKey() {
 
 // Smart Scan (OCR des bons) : voir smartscan_core/routes.php
 require_once __DIR__ . '/smartscan_core/routes.php';
+// Rayons proposés à l'accueil de CaisseDZ Desktop : voir catalogue_core/routes.php
+require_once __DIR__ . '/catalogue_core/routes.php';
 
 try {
     // Les routes /smartscan/* s'authentifient par la licence Caisse DZ du
@@ -182,7 +184,8 @@ try {
         }
 
         // Générer un nom unique
-        $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+        // L'extension vient du type réel du fichier, jamais du nom envoyé par le client.
+        $extension = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$mimeType];
         $filename = time() . '_' . bin2hex(random_bytes(8)) . '.' . $extension;
 
         // Créer le dossier d'upload
@@ -213,6 +216,12 @@ try {
     // ===== SMART SCAN (OCR des bons, quotas par client) =====
     if ($resource === 'smartscan') {
         smartscanRoute($db, $id, $method);
+        exit;
+    }
+
+    // ===== RAYONS (sections du catalogue, 2 000 produits les mieux classés chacune) =====
+    if ($resource === 'rayons') {
+        rayonsRoute($db, $id, $sub, $method);
         exit;
     }
 
@@ -267,6 +276,8 @@ try {
                     echo json_encode(['success' => false, 'error' => 'Produit non trouvé'], JSON_UNESCAPED_UNICODE);
                     exit;
                 }
+                // Chaque recherche fait monter le produit dans le classement de son rayon.
+                Rayons::compterConsultation($db, $product['id']);
 
                 echo json_encode(['success' => true, 'data' => $product], JSON_UNESCAPED_UNICODE);
                 exit;

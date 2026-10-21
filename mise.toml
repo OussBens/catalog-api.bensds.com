@@ -1,0 +1,25 @@
+# catalog-api.bensds.com: plain PHP, nothing to build. Deploying sends the
+# committed files that changed since the version live on the host (README → Deploying).
+
+[tasks.deploy]
+description = "Upload what changed in git since the live version, over FTPS: mise run deploy [-- --dry-run | --all | --since <rev>] (CATALOG_FTP_* in your shell, see tool/deploy_ftp.sh)"
+run = "tool/deploy_ftp.sh"
+
+# Windows: Git's own bash (System32\bash.exe would be WSL's).
+[tasks.depwin]
+description = "mise run deploy from Windows: uploads from WSL; same options (CATALOG_FTP_* in Windows, see tool/deploy_win.sh)"
+run = "echo 'depwin is for Windows: use mise run deploy' >&2; exit 1"
+run_windows = '"%ProgramFiles%\Git\bin\bash.exe" tool/deploy_win.sh'
+
+[tasks.depwin-pass]
+description = "Save the FTP password for mise run depwin (encrypted for this Windows user)"
+run = "echo 'depwin-pass is for Windows' >&2; exit 1"
+run_windows = "powershell -NoProfile -ExecutionPolicy Bypass -File tool/save_ftp_pass.ps1"
+
+[tasks.test]
+description = "The PHP tests (no server, no MySQL): rayons, BENS licences, Smart Scan desktop"
+run = [
+  "php catalogue_core/tests/rayons_test.php",
+  "php -d extension=sodium smartscan_core/tests/licence_bens_test.php",
+  "php -d extension=sodium smartscan_core/tests/smartscan_desktop_test.php",
+]

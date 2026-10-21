@@ -17,6 +17,12 @@
     Deny from all
 </Files>
 
+# The version deployed (tool/deploy_ftp.sh): not for visitors
+<Files .deploy-rev>
+    Order allow,deny
+    Deny from all
+</Files>
+
 # Security: Deny access to sensitive directories
 RedirectMatch 403 ^/(config|models|controllers|services|middleware)/.*$
 

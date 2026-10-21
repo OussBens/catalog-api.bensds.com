@@ -12,3 +12,6 @@ public/uploads/
 
 # Imports
 *.csv
+
+# Deploy stage (tool/deploy_ftp.sh)
+build/

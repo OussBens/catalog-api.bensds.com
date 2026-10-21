@@ -20,13 +20,16 @@
  * mois civil en cours) : il repart à zéro chaque mois sans tâche planifiée
  * et les scans non utilisés ne sont jamais reportés.
  *
- * Deux plateformes, chacune avec ses forfaits :
- *   desktop  Caisse DZ PC, authentifié par sa licence (X-Device-Id + X-License-Key) ;
+ * Deux plateformes :
+ *   desktop  CaisseDZ Desktop, authentifié par sa licence BENS signée (X-Device-Id + X-License-Key,
+ *            LicenceBens) ; ses Smart Scans sont comptés par bens_ds (RevBens) : scans inclus de la
+ *            formule, de l'essai et des packs, chacun avec sa date de fin. Réservé avant l'OCR,
+ *            confirmé si du texte est lu, libéré sinon (non compté) ;
  *   mobile   application Caisse DZ mobile, authentifiée par sa connexion
- *            Firebase (X-Firebase-Token, numéro de téléphone vérifié par SMS).
- * Un nouveau client a l'essai gratuit de sa plateforme (forfait essai = 1) à partir
- * de essai_debut ; ensuite seule une offre payante activée par
- * l'administration lui donne des scans.
+ *            Firebase (X-Firebase-Token, numéro de téléphone vérifié par SMS) ; ses Smart Scans
+ *            sont comptés par bens_ds de la même façon, au compte de son numéro.
+ * L'essai, les formules et les packs sont ceux de bens_ds (le tableau de bord BENS) ; les forfaits
+ * mensuels ss_forfaits / ss_abonnements ne donnent plus de scans.
  */
 
 class SmartScanException extends Exception
@@ -79,7 +82,10 @@ class SmartScanService
     {
         $this->db = $db;
         $this->config = array_merge([
-            'secret_licence' => '',
+            'secret_licence' => '', // empreintes des numéros (essais déjà utilisés)
+            'cle_publique' => '', // LICENSE_PUBLIC_KEY : CaisseDZ Desktop dans le tableau de bord BENS
+            'produit_licence' => 1, // LICENSE_PRODUCT : son numéro
+            'rev' => null, // RevBens : les scans de CaisseDZ, comptés par bens_ds
             'firebase' => null, // FirebaseToken, pour l'application mobile
             'rate_par_minute' => 6,
             'max_simultanes' => 1,
@@ -130,23 +136,6 @@ class SmartScanService
     // ─────────────────────────────────────────────────────────── Licence
 
     /**
-     * Même calcul que l'application (AuthState._generateKey) : SHA-256 de
-     * l'entrelacement (identifiant machine [+ "#palier"], secret), en
-     * majuscules. Le palier "avance" n'a pas de suffixe.
-     */
-    public static function cleLicence($deviceId, $palier, $secret)
-    {
-        $entree = $palier === 'avance' ? $deviceId : $deviceId . '#' . $palier;
-        $melange = '';
-        $max = max(strlen($entree), strlen($secret));
-        for ($i = 0; $i < $max; $i++) {
-            if ($i < strlen($entree)) $melange .= $entree[$i];
-            if ($i < strlen($secret)) $melange .= $secret[$i];
-        }
-        return strtoupper(hash('sha256', $melange));
-    }
-
-    /**
      * Vérifie la licence du poste et renvoie le poste (avec son client).
      * Un poste inconnu est enregistré et rattaché à un nouveau client (nom
      * de l'entreprise saisi dans l'app) ; l'administration peut ensuite le
@@ -154,22 +143,16 @@ class SmartScanService
      */
     public function authentifier($deviceId, $cle, $entreprise = null)
     {
-        $secret = $this->config['secret_licence'];
-        if ($secret === '') {
-            throw new SmartScanException(503, 'SERVER_NOT_CONFIGURED', 'Service Smart Scan non configuré.');
+        if ($this->config['cle_publique'] === '') {
+            throw new SmartScanException(503, 'SERVER_NOT_CONFIGURED', 'Service Smart Scan non configuré (LICENSE_PUBLIC_KEY).');
         }
         $deviceId = trim((string)$deviceId);
-        $cle = strtoupper(trim((string)$cle));
+        $cle = trim((string)$cle);
         if ($deviceId === '' || $cle === '' || strlen($deviceId) > 64 || !preg_match('/^[A-Za-z0-9_-]+$/', $deviceId)) {
             throw new SmartScanException(401, 'LICENSE_INVALID', 'Licence Caisse DZ manquante ou invalide.');
         }
-        $palierValide = null;
-        foreach (['avance', 'basic'] as $palier) {
-            if (hash_equals(self::cleLicence($deviceId, $palier, $secret), $cle)) {
-                $palierValide = $palier;
-                break;
-            }
-        }
+        // Licence BENS signée pour ce poste, en cours (essai ou formule) : son palier.
+        $palierValide = LicenceBens::palier($deviceId, $cle, $this->config['cle_publique'], $this->config['produit_licence']);
         if ($palierValide === null) {
             throw new SmartScanException(401, 'LICENSE_INVALID', 'Licence Caisse DZ manquante ou invalide.');
         }
@@ -338,21 +321,6 @@ class SmartScanService
         return $f ?: null;
     }
 
-    /** Abonnement payant en cours (statut actif et période couvrant aujourd'hui). */
-    private function abonnementActif($clientId)
-    {
-        $aujourdhui = $this->jour();
-        // Les abonnements arrivés à échéance passent en "expired".
-        $stmt = $this->db->prepare("UPDATE ss_abonnements SET statut = 'expired' WHERE client_id = ? AND statut = 'active' AND fin < ?");
-        $stmt->execute([$clientId, $aujourdhui]);
-
-        $stmt = $this->db->prepare("SELECT * FROM ss_abonnements WHERE client_id = ? AND statut = 'active' AND debut <= ? AND fin >= ?
-            ORDER BY fin DESC LIMIT 1");
-        $stmt->execute([$clientId, $aujourdhui, $aujourdhui]);
-        $a = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $a ?: null;
-    }
-
     private function compterScans($clientId, $statut, $depuis, $jusqua = null)
     {
         $sql = 'SELECT COUNT(*) FROM ss_scans WHERE client_id = ? AND statut = ? AND cree_le >= ?';
@@ -369,22 +337,6 @@ class SmartScanService
     private static function plateforme(array $client)
     {
         return ($client['plateforme'] ?? '') === 'mobile' ? 'mobile' : 'desktop';
-    }
-
-    /** Forfait d'essai gratuit de la plateforme. */
-    private function forfaitEssai($plateforme)
-    {
-        $stmt = $this->db->prepare('SELECT * FROM ss_forfaits WHERE plateforme = ? AND essai = 1 AND actif = 1 ORDER BY code LIMIT 1');
-        $stmt->execute([$plateforme]);
-        $f = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $f ?: null;
-    }
-
-    /** Dernier jour de l'essai du client (inclus). */
-    private function finEssai(array $client, array $essai)
-    {
-        $debut = $client['essai_debut'] ?: substr($client['cree_le'], 0, 10);
-        return date('Y-m-d', strtotime($debut . ' +' . max(1, (int)$essai['duree_mois']) . ' months -1 day'));
     }
 
     /** Offres payantes de la plateforme, la plus courte d'abord. */
@@ -405,56 +357,82 @@ class SmartScanService
     }
 
     /**
-     * État du quota du client — renvoyé tel quel à l'application.
-     * status : "active" (offre payante), "trial" (essai en cours) ou "expired"
-     * (essai terminé, aucune offre : 0 scan).
+     * État du quota du client — renvoyé tel quel à l'application : ses Smart Scans chez bens_ds.
+     * status : "active" (scans achetés), "trial" (seulement ceux de l'essai) ou "expired" (aucun).
      */
-    public function quota($clientId)
+    public function quota($clientId, $deviceId = null)
     {
-        $client = $this->client($clientId);
-        $plateforme = self::plateforme($client);
-        $abonnement = $this->abonnementActif($clientId);
-        $finEssai = null;
-        if ($abonnement) {
-            $forfait = $this->forfait($abonnement['forfait_code']);
-            $statut = 'active';
-        } else {
-            $forfait = $this->forfaitEssai($plateforme);
-            if ($forfait === null) {
-                throw new SmartScanException(503, 'SERVER_NOT_CONFIGURED', 'Forfait d\'essai Smart Scan introuvable.');
-            }
-            $finEssai = $this->finEssai($client, $forfait);
-            $statut = $this->jour() <= $finEssai ? 'trial' : 'expired';
-        }
-        if ($forfait === null) {
-            throw new SmartScanException(503, 'SERVER_NOT_CONFIGURED', 'Forfait Smart Scan introuvable.');
-        }
+        return $this->quotaRev($this->client($clientId), $deviceId);
+    }
 
-        $moisCourant = date('Y-m', $this->maintenant());
-        $limite = $statut === 'expired' ? 0 : (int)$forfait['quota_mensuel'];
-        if ($client['quota_exception'] !== null && $client['quota_exception_mois'] === $moisCourant) {
-            $limite = (int)$client['quota_exception'];
+    /** Les scans comptés par bens_ds. */
+    private function rev()
+    {
+        $rev = $this->config['rev'];
+        if (!$rev instanceof RevBens || !$rev->configure()) {
+            throw new SmartScanException(503, 'SERVER_NOT_CONFIGURED', 'Smart Scan non configuré (REV_API_URL, REV_SERVER_TOKEN).');
         }
-        $utilises = $this->compterScans($clientId, self::REUSSI, $this->debutMois(), $this->debutMoisSuivant());
-        $offres = $this->offres($plateforme);
+        return $rev;
+    }
 
+    /** Le poste à interroger : celui de la requête, sinon le dernier vu du client (administration). */
+    private function posteDuClient($clientId, $deviceId)
+    {
+        if ($deviceId !== null) return $deviceId;
+        $stmt = $this->db->prepare('SELECT device_id FROM ss_postes WHERE client_id = ? ORDER BY dernier_appel DESC LIMIT 1');
+        $stmt->execute([(int)$clientId]);
+        $d = $stmt->fetchColumn();
+        return $d ?: null;
+    }
+
+    /**
+     * Le compte du client chez bens_ds : le poste (Desktop : celui de la requête, sinon le dernier vu),
+     * le numéro (Mobile). Null : aucun (rien à dépenser).
+     */
+    private function compteRev(array $client, $deviceId)
+    {
+        if (self::plateforme($client) === 'mobile') {
+            return ($client['contact'] ?? '') !== '' ? RevBens::telephone($client['contact']) : null;
+        }
+        $deviceId = $this->posteDuClient((int)$client['id'], $deviceId);
+        return $deviceId === null ? null : RevBens::poste(LicenceBens::codePoste($deviceId));
+    }
+
+    /**
+     * Quota d'après bens_ds, sous la forme habituelle de l'application et de l'administration :
+     * limit / used / remaining sur les scans en cours (essai, inclus et packs), le détail par lot
+     * (buckets) et ceux qui expirent bientôt (expiring_soon).
+     */
+    private function quotaRev(array $client, $deviceId)
+    {
+        $compte = $this->compteRev($client, $deviceId);
+        $s = $compte === null
+            ? ['remaining' => 0, 'total' => 0, 'status' => 'none', 'buckets' => [], 'expiringSoon' => []]
+            : $this->rev()->solde($compte);
+        $total = (int)($s['total'] ?? 0);
+        $reste = (int)($s['remaining'] ?? 0);
+        $statut = ($s['status'] ?? 'none') === 'none' ? 'expired' : $s['status'];
         return [
-            'client_id' => (int)$clientId,
+            'client_id' => (int)$client['id'],
             'client_nom' => $client['nom'],
-            'platform' => $plateforme,
-            'plan' => $forfait['code'],
-            'plan_nom' => $forfait['nom'],
-            'monthly_limit' => $limite,
-            'used' => $utilises,
-            'remaining' => max(0, $limite - $utilises),
-            'limit_reached' => $utilises >= $limite,
-            'renewal_date' => substr($this->debutMoisSuivant(), 0, 10),
-            'trial_end' => $finEssai,
-            'subscription_start' => $abonnement ? $abonnement['debut'] : null,
-            'subscription_end' => $abonnement ? $abonnement['fin'] : null,
+            'platform' => self::plateforme($client),
+            'plan' => 'SCANS',
+            'plan_nom' => 'Smart Scan',
+            'period' => 'scans',
+            'limit' => $total,
+            'monthly_limit' => $total,
+            'used' => $total - $reste,
+            'remaining' => $reste,
+            'limit_reached' => $reste <= 0,
+            'renewal_date' => null,
+            'trial_end' => null,
+            'subscription_start' => null,
+            'subscription_end' => null,
             'status' => $statut,
-            'upgrade_available' => $statut !== 'active' && count($offres) > 0,
-            'offers' => $offres,
+            'buckets' => $s['buckets'] ?? [],
+            'expiring_soon' => $s['expiringSoon'] ?? [],
+            'upgrade_available' => true,
+            'offers' => [],
             'contact' => $this->config['contact'],
         ];
     }
@@ -512,24 +490,26 @@ class SmartScanService
                 throw new SmartScanException(429, 'SCAN_IN_PROGRESS', 'Un scan est déjà en cours pour ce client.');
             }
 
-            $quota = $this->quota($clientId);
-            if ($quota['used'] + $enCours >= $quota['monthly_limit']) {
-                $texte = $quota['status'] === 'expired'
-                    ? 'Votre essai Smart Scan est terminé. Choisissez une offre pour continuer.'
-                    : 'Votre quota mensuel de Smart Scan est atteint.';
-                throw new SmartScanException(429, 'SCAN_QUOTA_EXCEEDED', $texte, [
+            // bens_ds réserve un scan dans le premier lot qui en a (essai et inclus d'abord, puis packs).
+            $compte = $this->compteRev($client, $poste['device_id']);
+            $r = $compte === null ? null : $this->rev()->reserver($compte, 'poste ' . substr($poste['device_id'], 0, 12));
+            if ($r === null) {
+                $quota = $this->quota($clientId, $poste['device_id']);
+                throw new SmartScanException(429, 'SCAN_QUOTA_EXCEEDED', 'Vos Smart Scans sont épuisés ou expirés. Achetez un pack Smart Scan pour continuer.', [
                     'used' => $quota['used'],
-                    'limit' => $quota['monthly_limit'],
+                    'limit' => $quota['limit'],
                     'remaining' => 0,
-                    'upgrade_available' => $quota['upgrade_available'],
+                    'upgrade_available' => true,
                     'quota' => $quota,
                 ]);
             }
+            $reservation = $r['reservation'];
 
             // Après le quota : un client hors quota voit l'offre, pas « doublon ».
             $stmt = $this->db->prepare('SELECT COUNT(*) FROM ss_scans WHERE client_id = ? AND statut = ? AND empreinte_image = ? AND cree_le >= ?');
             $stmt->execute([$clientId, self::REUSSI, $image['empreinte'], $this->dateHeure($maintenant - $this->config['doublon_fenetre_s'])]);
             if ((int)$stmt->fetchColumn() > 0) {
+                if ($reservation !== null) $this->rev()->liberer($reservation);
                 throw new SmartScanException(409, 'DUPLICATE_SCAN', 'Ce bon vient déjà d\'être scanné.');
             }
 
@@ -538,13 +518,14 @@ class SmartScanService
                 $stmt = $this->db->prepare('SELECT COUNT(*) FROM ss_scans WHERE statut = ? AND cree_le >= ?');
                 $stmt->execute([self::REUSSI, $this->debutMois()]);
                 if ((int)$stmt->fetchColumn() >= $plafond) {
+                    if ($reservation !== null) $this->rev()->liberer($reservation);
                     throw new SmartScanException(503, 'SERVICE_UNAVAILABLE', 'Service Smart Scan momentanément indisponible.');
                 }
             }
 
-            $stmt = $this->db->prepare('INSERT INTO ss_scans (client_id, device_id, cree_le, statut, modele, taille_image, empreinte_image, extractions)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0)');
-            $stmt->execute([$clientId, $poste['device_id'], $this->dateHeure(), self::RESERVE, self::MODELE_OCR, $image['taille'], $image['empreinte']]);
+            $stmt = $this->db->prepare('INSERT INTO ss_scans (client_id, device_id, cree_le, statut, modele, taille_image, empreinte_image, extractions, rev_reservation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)');
+            $stmt->execute([$clientId, $poste['device_id'], $this->dateHeure(), self::RESERVE, self::MODELE_OCR, $image['taille'], $image['empreinte'], $reservation]);
             $scanId = (int)$this->db->lastInsertId();
             $this->db->commit();
             return $scanId;
@@ -558,6 +539,18 @@ class SmartScanService
     {
         $stmt = $this->db->prepare('UPDATE ss_scans SET statut = ?, duree_ms = ?, code_erreur = ?, message_erreur = ? WHERE id = ?');
         $stmt->execute([$statut, $dureeMs, $codeErreur, $messageErreur !== null ? mb_substr($messageErreur, 0, 255) : null, $scanId]);
+        // CaisseDZ Desktop : bens_ds compte le scan s'il a lu du texte, le rend sinon.
+        $stmt = $this->db->prepare('SELECT rev_reservation FROM ss_scans WHERE id = ?');
+        $stmt->execute([$scanId]);
+        $reservation = $stmt->fetchColumn();
+        if ($reservation) {
+            try {
+                $statut === self::REUSSI ? $this->rev()->confirmer($reservation) : $this->rev()->liberer($reservation);
+            } catch (SmartScanException $e) {
+                // Le scan est fait (ou a échoué) : une réservation non fermée cesse de compter au bout de 10 minutes.
+                error_log('[smartscan] bensdsRev ' . $reservation . ' : ' . $e->codeErreur);
+            }
+        }
     }
 
     /**
@@ -607,7 +600,7 @@ class SmartScanService
             'success' => true,
             'scan_id' => $scanId,
             'text' => $texte,
-            'quota' => $this->quota((int)$poste['client_id']),
+            'quota' => $this->quota((int)$poste['client_id'], $poste['device_id']),
         ];
     }
 
