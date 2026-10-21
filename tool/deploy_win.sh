@@ -12,10 +12,12 @@
 # Environment Variables, or `setx CATALOG_FTP_HOST …`), never from this
 # repository: CATALOG_FTP_HOST, CATALOG_FTP_USER, CATALOG_FTP_DIR, CATALOG_URL
 # (see tool/deploy_ftp.sh), each falling back on bens_ds's BENS_FTP_* (same
-# cPanel account). The password: CATALOG_FTP_PASS_CMD (or BENS_FTP_PASS_CMD),
-# run here in Git Bash, or else the one saved for this Windows user by
-# `mise run depwin-pass` (%USERPROFILE%\.bens\catalog-ftp-pass), or else
-# bens_ds's (%USERPROFILE%\.bens\ftp-pass).
+# cPanel account). The password: CATALOG_FTP_PASS_CMD, run here in Git Bash,
+# or else the one saved for this Windows user by `mise run depwin-pass`
+# (%USERPROFILE%\.bens\catalog-ftp-pass). Only without CATALOG_FTP_USER (the
+# catalogue on bens_ds's FTP account) does it fall back on bens_ds's password
+# (BENS_FTP_PASS_CMD, %USERPROFILE%\.bens\ftp-pass): with its own account, the
+# two passwords stay apart.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -38,9 +40,12 @@ missing=$(wsl.exe -e sh -c 'for t in lftp git flock curl; do command -v $t >/dev
 [ -n "$CATALOG_FTP_USER" ] || { echo "✗ Set CATALOG_FTP_USER in Windows (see tool/deploy_win.sh)" >&2; exit 1; }
 export CATALOG_FTP_HOST CATALOG_FTP_USER
 
-pass_cmd="${CATALOG_FTP_PASS_CMD:-${BENS_FTP_PASS_CMD:-}}"
+pass_cmd="${CATALOG_FTP_PASS_CMD:-}"
 pass_file="$USERPROFILE/.bens/catalog-ftp-pass"
-[ -f "$pass_file" ] || pass_file="$USERPROFILE/.bens/ftp-pass"
+if [ -z "${CATALOG_FTP_USER:-}" ]; then
+  pass_cmd="${pass_cmd:-${BENS_FTP_PASS_CMD:-}}"
+  [ -f "$pass_file" ] || pass_file="$USERPROFILE/.bens/ftp-pass"
+fi
 if [ -n "$pass_cmd" ]; then
   CATALOG_FTP_PASSWORD="$(sh -c "$pass_cmd")" || true
 elif [ -f "$pass_file" ]; then

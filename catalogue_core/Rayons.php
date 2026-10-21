@@ -13,12 +13,12 @@
  * Un mot-clé correspond au début d'un mot (« biscuit » trouve « biscuits »), sans accents ni majuscules.
  *
  * Classement : consultations × 100 (recherches par code-barres de toutes les installations)
- * + 50 si code-barres algérien (613…) + 10 s'il a une photo. Chaque rayon propose ses
- * PLAFOND premiers produits.
+ * + 50 si code-barres algérien (613…) + 10 s'il a une photo + les points de tendance (ventes dans les
+ * boutiques, catalogue_core/Tendance.php). Chaque rayon propose ses PLAFOND premiers produits.
  */
 class Rayons
 {
-    const PLAFOND = 2000;
+    const PLAFOND = 5000;
     const LOT_PAGE_MAX = 500;
 
     /**
@@ -272,20 +272,21 @@ class Rayons
         return self::preparerLignes($lignes);
     }
 
-    public static function score($consultations, $algerien, $photo)
+    public static function score($consultations, $algerien, $photo, $pointsTendance = 0)
     {
-        return (int)$consultations * 100 + ($algerien ? 50 : 0) + ($photo ? 10 : 0);
+        return (int)$consultations * 100 + ($algerien ? 50 : 0) + ($photo ? 10 : 0) + (int)$pointsTendance;
     }
 
     /**
      * Classe [lot] produits à partir de l'id [depuis] (exclu). Renvoie le dernier id traité, ou null quand
      * tout est classé. À relancer jusqu'à null (admin_rayons.php, catalogue_core/reclasser.php).
+     * Un produit au nom arabe le prend aussi comme nom arabe (s'il n'en a pas).
      */
     public static function reclasser(PDO $db, $depuis = 0, $lot = 5000, array $rayons = null)
     {
         $rayons = $rayons ?? self::preparer($db);
         $stmt = $db->prepare("
-            SELECT p.id, p.nom, p.code_produit, p.photo, p.consultations, COALESCE(c.nom, '') AS categorie,
+            SELECT p.id, p.nom, p.code_produit, p.photo, p.consultations, p.points_tendance, COALESCE(c.nom, '') AS categorie,
                    (SELECT COUNT(*) FROM catalog_product_barcode b WHERE b.product_id = p.id AND b.barcode LIKE '613%') AS dz
             FROM catalog_product p
             LEFT JOIN catalog_category c ON c.id = p.category_id
@@ -295,7 +296,8 @@ class Rayons
         if (!$lignes) {
             return null;
         }
-        $maj = $db->prepare('UPDATE catalog_product SET rayon_code = ?, exclu = ?, score = ?, classe_le = ? WHERE id = ?');
+        $maj = $db->prepare("UPDATE catalog_product SET rayon_code = ?, exclu = ?, score = ?, classe_le = ?,
+                             nom_ar = CASE WHEN nom_ar IS NULL OR nom_ar = '' THEN ? ELSE nom_ar END WHERE id = ?");
         $maintenant = date('Y-m-d H:i:s');
         $db->beginTransaction();
         try {
@@ -305,8 +307,9 @@ class Rayons
                 $maj->execute([
                     self::classer($p['nom'], $categorie, $rayons),
                     self::estExclu($p['nom'], $categorie) ? 1 : 0,
-                    self::score($p['consultations'], $algerien, trim((string)$p['photo']) !== ''),
+                    self::score($p['consultations'], $algerien, trim((string)$p['photo']) !== '', $p['points_tendance']),
                     $maintenant,
+                    Tendance::estArabe($p['nom']) && mb_strlen(trim($p['nom'])) <= Tendance::NOM_AR_MAX ? trim($p['nom']) : null,
                     $p['id'],
                 ]);
             }
@@ -318,19 +321,22 @@ class Rayons
         return (int)end($lignes)['id'];
     }
 
-    /** Rayons actifs et le nombre de produits que chacun propose (au plus PLAFOND). */
+    /** Rayons actifs, le nombre de produits que chacun propose (au plus PLAFOND) et combien sont en tendance. */
     public static function liste(PDO $db)
     {
         $nb = [];
-        foreach ($db->query('SELECT rayon_code, COUNT(*) AS n FROM catalog_product
+        $tendances = [];
+        foreach ($db->query('SELECT rayon_code, COUNT(*) AS n, SUM(tendance) AS t FROM catalog_product
                              WHERE exclu = 0 AND rayon_code IS NOT NULL GROUP BY rayon_code')->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $nb[$r['rayon_code']] = (int)$r['n'];
+            $tendances[$r['rayon_code']] = (int)$r['t'];
         }
         $rayons = [];
         foreach ($db->query('SELECT code, nom_fr, nom_ar, nom_en, icone, ordre FROM catalog_rayon
                              WHERE actif = 1 ORDER BY ordre, code')->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $r['ordre'] = (int)$r['ordre'];
             $r['produits'] = min($nb[$r['code']] ?? 0, self::PLAFOND);
+            $r['tendances'] = min($tendances[$r['code']] ?? 0, self::PLAFOND);
             $rayons[] = $r;
         }
         return ['plafond' => self::PLAFOND, 'rayons' => $rayons];
@@ -338,9 +344,10 @@ class Rayons
 
     /**
      * Une page des produits proposés par le rayon [code] (les PLAFOND mieux classés), avec leurs codes-barres.
-     * Lance une exception 404 si le rayon n'existe pas.
+     * [depuis] (AAAA-MM-JJ) : seulement ceux devenus tendance depuis ce jour (mise à jour d'un poste qui a déjà
+     * téléchargé le rayon). Lance une exception 404 si le rayon n'existe pas.
      */
-    public static function produits(PDO $db, $code, $page = 1, $limite = self::LOT_PAGE_MAX)
+    public static function produits(PDO $db, $code, $page = 1, $limite = self::LOT_PAGE_MAX, $depuis = null)
     {
         $rayon = $db->prepare('SELECT code FROM catalog_rayon WHERE code = ? AND actif = 1');
         $rayon->execute([$code]);
@@ -349,19 +356,28 @@ class Rayons
         }
         $page = max(1, (int)$page);
         $limite = max(1, min((int)$limite, self::LOT_PAGE_MAX));
-        $compte = $db->prepare('SELECT COUNT(*) FROM catalog_product WHERE rayon_code = ? AND exclu = 0');
-        $compte->execute([$code]);
+        $filtre = 'p.rayon_code = ? AND p.exclu = 0';
+        $params = [$code];
+        if ($depuis !== null) {
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$depuis)) {
+                throw new Exception('depuis : AAAA-MM-JJ', 400);
+            }
+            $filtre .= ' AND p.tendance = 1 AND p.tendance_le >= ?';
+            $params[] = $depuis;
+        }
+        $compte = $db->prepare("SELECT COUNT(*) FROM catalog_product p WHERE $filtre");
+        $compte->execute($params);
         $total = min((int)$compte->fetchColumn(), self::PLAFOND);
         $debut = ($page - 1) * $limite;
         $nb = max(0, min($limite, $total - $debut));
         $produits = [];
         if ($nb > 0) {
             $stmt = $db->prepare("
-                SELECT p.id, p.code_produit, p.nom, p.photo, COALESCE(b.nom, '') AS marque
+                SELECT p.id, p.code_produit, p.nom, p.nom_ar, p.tendance, p.photo, COALESCE(b.nom, '') AS marque
                 FROM catalog_product p LEFT JOIN catalog_brand b ON b.id = p.brand_id
-                WHERE p.rayon_code = ? AND p.exclu = 0
+                WHERE $filtre
                 ORDER BY p.score DESC, p.id DESC LIMIT $nb OFFSET $debut");
-            $stmt->execute([$code]);
+            $stmt->execute($params);
             $lignes = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $codes = [];
             if ($lignes) {
@@ -379,6 +395,8 @@ class Rayons
                     'code_barres' => $principal,
                     'codes_barres' => array_values(array_unique(array_filter(array_merge([$principal], $liste)))),
                     'nom' => $p['nom'],
+                    'nom_ar' => $p['nom_ar'] ?: null,
+                    'tendance' => (int)$p['tendance'] === 1,
                     'marque' => $p['marque'],
                     'photo' => $p['photo'] ?: null,
                 ];

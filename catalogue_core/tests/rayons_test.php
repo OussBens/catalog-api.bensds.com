@@ -3,6 +3,8 @@
 // Rayons : tri, exclusion porc / alcool, classement et pages servies à CaisseDZ Desktop (SQLite en mémoire).
 require __DIR__ . '/../Rayons.php';
 require __DIR__ . '/../RayonsSchema.php';
+require __DIR__ . '/../Tendance.php';
+require __DIR__ . '/../Contributions.php';
 
 $ok = 0;
 $ko = 0;
@@ -121,7 +123,7 @@ check('une consultation : +100', (int)$db->query('SELECT score FROM catalog_prod
 
 $liste = Rayons::liste($db);
 $boissons = array_values(array_filter($liste['rayons'], function ($x) { return $x['code'] === 'boissons'; }))[0];
-check('plafond 2000', $liste['plafond'] === 2000);
+check('plafond 5000', $liste['plafond'] === 5000);
 check('boissons : 4 produits (Pils exclu)', $boissons['produits'] === 4);
 check('noms FR/AR/EN et icône', $boissons['nom_ar'] === 'المشروبات' && $boissons['icone'] === 'cup-soda');
 

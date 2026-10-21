@@ -17,9 +17,10 @@ run = "echo 'depwin-pass is for Windows' >&2; exit 1"
 run_windows = "powershell -NoProfile -ExecutionPolicy Bypass -File tool/save_ftp_pass.ps1"
 
 [tasks.test]
-description = "The PHP tests (no server, no MySQL): rayons, BENS licences, Smart Scan desktop"
+description = "The PHP tests (no server, no MySQL): rayons, tendance, BENS licences, Smart Scan desktop"
 run = [
   "php catalogue_core/tests/rayons_test.php",
+  "php -d extension=sodium catalogue_core/tests/tendance_test.php",
   "php -d extension=sodium smartscan_core/tests/licence_bens_test.php",
   "php -d extension=sodium smartscan_core/tests/smartscan_desktop_test.php",
 ]

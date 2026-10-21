@@ -4,7 +4,8 @@
  * (ADMIN_PASSWORD du .env, session + jeton CSRF).
  *
  * Rayons proposés à l'accueil de CaisseDZ Desktop : noms FR/AR/EN, icône, ordre, mots-clés de tri ;
- * aperçu des produits proposés ; reclassement du catalogue par lots (voir catalogue_core/Rayons.php).
+ * aperçu des produits proposés ; reclassement du catalogue par lots (voir catalogue_core/Rayons.php) ;
+ * tendance : ce qui se vend dans les boutiques (catalogue_core/Tendance.php).
  */
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
@@ -119,6 +120,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'installer') {
         RayonsSchema::installer($db);
         $_SESSION['message'] = 'Tables des rayons installées / mises à jour.';
+    } elseif ($action === 'rafraichir_tendance') {
+        $n = Tendance::rafraichir($db, 20000);
+        $_SESSION['message'] = "Tendance recalculée pour $n produits.";
     }
     header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?') . '?page=' . urlencode($page)
         . (isset($_POST['code']) ? '&code=' . urlencode($_POST['code']) : ''));
@@ -165,6 +169,7 @@ textarea{width:100%;height:220px}button,.bouton{background:#755DB3;color:#fff;bo
 </style></head><body>
 <header><b>Catalogue</b>
 <a class="<?= $page === 'rayons' ? 'on' : '' ?>" href="?page=rayons">Rayons</a>
+<a class="<?= $page === 'tendance' ? 'on' : '' ?>" href="?page=tendance">Tendance</a>
 <a href="admin_smartscan.php">Smart Scan</a>
 <span style="flex:1"></span><a href="?deconnexion=1">Déconnexion</a></header>
 <main>
@@ -202,11 +207,49 @@ textarea{width:100%;height:220px}button,.bouton{background:#755DB3;color:#fff;bo
   </form>
 </div>
 <div class="carte"><h3 style="margin-top:0">Les 50 premiers proposés</h3>
-  <table><tr><th></th><th>Produit</th><th>Marque</th><th>Code-barres</th></tr>
+  <table><tr><th></th><th>Produit</th><th>Nom arabe</th><th>Marque</th><th>Code-barres</th><th>Tendance</th></tr>
   <?php foreach ($apercu['products'] as $p): ?>
     <tr><td><?php if ($p['photo']): ?><img src="<?= h($p['photo']) ?>" loading="lazy" alt=""><?php endif; ?></td>
-      <td><?= h($p['nom']) ?></td><td><?= h($p['marque']) ?></td><td><?= h($p['code_barres']) ?></td></tr>
+      <td><?= h($p['nom']) ?></td><td dir="rtl"><?= h($p['nom_ar']) ?></td><td><?= h($p['marque']) ?></td>
+      <td><?= h($p['code_barres']) ?></td><td><?= $p['tendance'] ? 'oui' : '' ?></td></tr>
   <?php endforeach; ?></table></div>
+
+<?php elseif ($page === 'tendance'):
+    $st = Tendance::stats($db);
+    $t = $st['totaux'];
+    $n = function ($v) { return number_format((int)$v, 0, ',', ' '); }; ?>
+<div class="carte">
+  <div class="chiffres">
+    <div><div class="chiffre"><?= $n($t['postes']) ?></div><small>boutiques qui envoient leurs ventes</small></div>
+    <div><div class="chiffre"><?= $n($t['produits']) ?></div><small>produits vendus</small></div>
+    <div><div class="chiffre"><?= $n($t['tickets']) ?></div><small>tickets comptés</small></div>
+    <div><div class="chiffre"><?= $n($t['tendances']) ?></div><small>en tendance</small></div>
+    <div><div class="chiffre"><?= $n($t['crees']) ?></div><small>produits créés par les boutiques</small></div>
+    <div><div class="chiffre"><?= $n($t['completes']) ?></div><small>fiches complétées</small></div>
+    <div><div class="chiffre"><?= $n($t['noms_ar']) ?></div><small>noms arabes</small></div>
+  </div>
+  <p><small>Sur les <?= Tendance::JOURS ?> derniers jours. Tendance : vendu dans au moins <?= $st['seuils']['postes'] ?> boutiques
+    et dans au moins <?= $st['seuils']['tickets'] ?> tickets (.env TENDANCE_POSTES_MIN, TENDANCE_TICKETS_MIN) ;
+    points ajoutés au classement : <?= Tendance::POINTS_POSTE ?> par boutique + <?= Tendance::POINTS_VENTE ?> par ticket
+    (<?= Tendance::VENTES_MAX_JOUR ?> au plus par boutique et par jour). Chaque rayon propose ses <?= $n(Rayons::PLAFOND) ?> premiers.</small></p>
+  <form method="post"><?= csrf() ?><input type="hidden" name="action" value="rafraichir_tendance">
+    <button class="sec">Recalculer les tendances</button> <small>(fait aussi peu à peu à chaque envoi des postes)</small></form>
+</div>
+<div class="carte"><h3 style="margin-top:0">Les plus vendus</h3>
+  <table><tr><th>Produit</th><th>Nom arabe</th><th>Rayon</th><th>Boutiques</th><th>Tickets</th><th>Points</th><th>Tendance depuis</th><th>Créé par</th></tr>
+  <?php foreach ($st['tendances'] as $p): ?>
+    <tr><td><?= h($p['nom']) ?></td><td dir="rtl"><?= h($p['nom_ar']) ?></td><td><?= h($p['rayon']) ?></td>
+      <td><?= $p['postes'] ?></td><td><?= $p['tickets'] ?></td><td><?= $n($p['points']) ?></td>
+      <td><?= $p['tendance'] ? h(substr((string)$p['depuis'], 0, 10)) : '' ?></td><td><?= h($p['contribue_par']) ?></td></tr>
+  <?php endforeach; ?>
+  <?php if (!$st['tendances']): ?><tr><td colspan="8"><small>Aucune vente reçue pour l'instant.</small></td></tr><?php endif; ?></table></div>
+<div class="carte"><h3 style="margin-top:0">Dernières contributions des boutiques</h3>
+  <table><tr><th>Le</th><th>Boutique</th><th>Produit</th><th>Action</th><th>Champs</th></tr>
+  <?php foreach ($st['contributions'] as $c): ?>
+    <tr><td><?= h($c['le']) ?></td><td><?= h($c['poste']) ?></td><td><?= h($c['nom']) ?> <small>#<?= $c['id'] ?></small></td>
+      <td><?= $c['action'] === 'cree' ? 'créé' : 'complété' ?></td><td><?= h(implode(', ', $c['champs'])) ?></td></tr>
+  <?php endforeach; ?>
+  <?php if (!$st['contributions']): ?><tr><td colspan="5"><small>Aucune pour l'instant.</small></td></tr><?php endif; ?></table></div>
 
 <?php else: ?>
 <div class="carte">

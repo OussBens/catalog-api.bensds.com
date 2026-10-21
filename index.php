@@ -117,9 +117,9 @@ require_once __DIR__ . '/smartscan_core/routes.php';
 require_once __DIR__ . '/catalogue_core/routes.php';
 
 try {
-    // Les routes /smartscan/* s'authentifient par la licence Caisse DZ du
-    // poste (smartscan_core/routes.php), pas par la clé d'administration du catalogue.
-    if (!in_array($method, ['GET', 'HEAD', 'OPTIONS'], true) && ($path_parts[0] ?? '') !== 'smartscan') {
+    // Les routes /smartscan/* et /tendance s'authentifient par la licence Caisse DZ du poste
+    // (smartscan_core/routes.php, catalogue_core/routes.php), pas par la clé d'administration du catalogue.
+    if (!in_array($method, ['GET', 'HEAD', 'OPTIONS'], true) && !in_array($path_parts[0] ?? '', ['smartscan', 'tendance'], true)) {
         requireApiKey();
     }
 
@@ -216,6 +216,12 @@ try {
     // ===== SMART SCAN (OCR des bons, quotas par client) =====
     if ($resource === 'smartscan') {
         smartscanRoute($db, $id, $method);
+        exit;
+    }
+
+    // ===== TENDANCE (ventes des postes CaisseDZ Desktop, catalogue_core/Tendance.php) =====
+    if ($resource === 'tendance') {
+        tendanceRoute($db, $method, $id);
         exit;
     }
 

@@ -110,13 +110,13 @@ php -d extension=sodium smartscan_core/tests/smartscan_desktop_test.php # licenc
 Les 50 000 catégories brutes (Open Food / Beauty Facts, en plusieurs langues) ne peuvent pas être
 montrées telles quelles. Chaque produit est rangé dans l'un des **16 rayons** (`catalog_rayon` : noms
 FR/AR/EN, icône Lucide, mots-clés), et le **porc et l'alcool sont exclus** (`catalog_product.exclu`).
-Chaque rayon propose ses **2 000 produits les mieux classés** : `score` = recherches par code-barres
+Chaque rayon propose ses **5 000 produits les mieux classés** : `score` = recherches par code-barres
 × 100 (toutes les installations, compté par `GET /products/barcode/{code}`) + 50 si code-barres
 algérien (613…) + 10 s'il a une photo.
 
-- `GET /rayons` : `{plafond, rayons: [{code, nom_fr, nom_ar, nom_en, icone, ordre, produits}]}`.
+- `GET /rayons` : `{plafond, rayons: [{code, nom_fr, nom_ar, nom_en, icone, ordre, produits, tendances}]}`.
 - `GET /rayons/{code}/products?page=1&limit=500` : `{rayon, total, page, limit, total_pages,
-  products: [{id, code_barres, codes_barres, nom, marque, photo}]}`.
+  products: [{id, code_barres, codes_barres, nom, nom_ar, tendance, marque, photo}]}`.
 - Code : `catalogue_core/` (`Rayons.php` tri, exclusion, classement ; `RayonsSchema.php` tables ;
   `routes.php`), administration `admin_rayons.php` (même mot de passe que Smart Scan).
 
@@ -130,6 +130,38 @@ algérien (613…) + 10 s'il a une photo.
    pour rafraîchir le classement : `php /home/bensds64/caissedz/catalog-api.bensds.com/catalogue_core/reclasser.php`).
 
 **Tests** : `php catalogue_core/tests/rayons_test.php` (sans serveur ni MySQL).
+
+## Tendance et noms arabes (2026-10-21)
+
+Chaque poste CaisseDZ Desktop envoie, au lancement, combien de tickets par jour contenaient chaque
+code-barres, et les fiches saisies dans la boutique (`POST /tendance`, authentifié par sa licence BENS
+signée : `X-Device-Id` + `X-License-Key`, comme Smart Scan, avec `LICENSE_PUBLIC_KEY` du `.env`) :
+`{produits: [{code_barres, codes_barres, nom, nom_ar, marque, categorie}], ventes: [{jour, code_barres,
+tickets}]}` → `{ventes, inconnus, crees, completes}`.
+
+- `catalog_vente_jour` : tickets par produit, poste (`CD-XXXX-XXXX`) et jour, 50 au plus (une boutique ne
+  fait pas la tendance seule) ; renvoyer un jour le remplace. Oubliées après 120 jours.
+- **Fiches des boutiques** (`Contributions.php`) : un code-barres inconnu devient tout de suite un produit
+  du catalogue (`contribue_par` = le poste), rangé dans son rayon ; un produit connu ne reçoit que ses champs
+  **vides** (nom, nom arabe, marque, catégorie, codes-barres en plus), jamais remplacés. Chaque création ou
+  complément est noté dans `catalog_contribution` (poste, champs).
+- Sur 90 jours : `postes_90j`, `ventes_90j`, `points_tendance` = 1 000 par boutique + 10 par ticket
+  (1 000 tickets au plus), **ajoutés au score du rayon**. `tendance = 1` dès **3 boutiques et 20 tickets**
+  (`.env` `TENDANCE_POSTES_MIN`, `TENDANCE_TICKETS_MIN`) ; `tendance_le` : depuis quand. Chaque rayon
+  propose ses **5 000** premiers (`Rayons::PLAFOND`). Recalcul immédiat des produits reçus, et quelques centaines d'autres à chaque envoi (la
+  fenêtre glisse) ; tout d'un coup : `admin_rayons.php` → Tendance → Recalculer.
+- `GET /rayons/{code}/products?depuis=AAAA-MM-JJ` : seulement les produits devenus tendance depuis ce jour
+  (le poste ajoute ceux des rayons qu'il a déjà téléchargés). Chaque produit porte `nom_ar` et `tendance` ;
+  `GET /rayons` ajoute `tendances` par rayon.
+- `nom_ar` : le nom lui-même s'il est en arabe (au reclassement), sinon le premier nom arabe proposé par un
+  poste (`nom_ar_poste`), jamais remplacé ensuite.
+- `GET /tendance/stats` (en-tête `X-Server-Token` = `REV_SERVER_TOKEN`, le jeton partagé avec bens_ds) : le
+  tableau de bord BENS (Official apps → CaisseDZ → Trending) : seuils, totaux, tendances par rayon, plus vendus,
+  chaque poste (`catalog_poste` : dernier envoi), dernières contributions. Aussi dans `admin_rayons.php` → Tendance.
+- Code : `catalogue_core/Tendance.php`. **Tests** : `php catalogue_core/tests/tendance_test.php`.
+
+**Mise en service** : déployer, `admin_rayons.php` → **Installer / mettre à jour les tables**, puis
+**Reclasser tout le catalogue** (reprend les noms arabes).
 
 ## Deploying (`mise run deploy` / `mise run depwin`)
 
