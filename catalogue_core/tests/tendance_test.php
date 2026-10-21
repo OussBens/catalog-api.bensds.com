@@ -262,6 +262,13 @@ $r = $vote('CD-DDDD-DDDD', $couscous, 1);
 $cc = parCode($db, $couscous);
 check('D → 5 : confirmé', $r['confirmes'] === 1 && (int)$cc['a_confirmer'] === 0 && (int)$cc['confirmation'] === 5 && $cc['confirme_le'] !== null);
 check('confirmé : proposé dans son rayon', Rayons::produits($db, 'epicerie')['products'][0]['nom'] === 'Couscous Mama 1kg');
+$aujourdhui = date('Y-m-d');
+$nouveautes = Rayons::produits($db, 'epicerie', 1, 500, $aujourdhui);
+check('confirmé : nouveau sur le marché depuis aujourd\'hui', $nouveautes['total'] === 1
+    && $nouveautes['products'][0]['nom'] === 'Couscous Mama 1kg' && $nouveautes['products'][0]['nouveau_le'] === $aujourdhui
+    && $nouveautes['products'][0]['tendance'] === false);
+check('nouveautés depuis demain : rien', Rayons::produits($db, 'epicerie', 1, 500, date('Y-m-d', strtotime('+1 day')))['total'] === 0);
+check('produit du catalogue d\'origine : pas une nouveauté', Rayons::produits($db, 'boissons')['products'][0]['nouveau_le'] === null);
 check('confirmé : plus de vote', $vote('CD-EEEE-EEEE', $couscous, -1)['votes'] === 0 && (int)parCode($db, $couscous)['confirmation'] === 5);
 
 // Jambon (à confirmer, 2) : deux « ce n'est pas ça » → 0 → supprimé, avec ses codes-barres et ses votes.

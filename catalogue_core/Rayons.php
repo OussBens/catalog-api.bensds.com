@@ -344,8 +344,11 @@ class Rayons
 
     /**
      * Une page des produits proposés par le rayon [code] (les PLAFOND mieux classés), avec leurs codes-barres.
-     * [depuis] (AAAA-MM-JJ) : seulement ceux devenus tendance depuis ce jour (mise à jour d'un poste qui a déjà
-     * téléchargé le rayon). Lance une exception 404 si le rayon n'existe pas.
+     * [depuis] (AAAA-MM-JJ) : seulement ceux devenus tendance depuis ce jour, ou nouveaux sur le marché depuis ce
+     * jour (mise à jour d'un poste qui a déjà téléchargé le rayon). Nouveau sur le marché : apporté par une boutique
+     * CaisseDZ (code-barres jusque-là inconnu du catalogue) puis confirmé par les autres ; `nouveau_le` : le jour de
+     * sa confirmation (alerte « Nouveautés du marché » de CaisseDZ Desktop). Lance une exception 404 si le rayon
+     * n'existe pas.
      */
     public static function produits(PDO $db, $code, $page = 1, $limite = self::LOT_PAGE_MAX, $depuis = null)
     {
@@ -363,7 +366,8 @@ class Rayons
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$depuis)) {
                 throw new Exception('depuis : AAAA-MM-JJ', 400);
             }
-            $filtre .= ' AND p.tendance = 1 AND p.tendance_le >= ?';
+            $filtre .= ' AND ((p.tendance = 1 AND p.tendance_le >= ?) OR (p.contribue_par IS NOT NULL AND p.confirme_le >= ?))';
+            $params[] = $depuis;
             $params[] = $depuis;
         }
         $compte = $db->prepare("SELECT COUNT(*) FROM catalog_product p WHERE $filtre");
@@ -374,7 +378,8 @@ class Rayons
         $produits = [];
         if ($nb > 0) {
             $stmt = $db->prepare("
-                SELECT p.id, p.code_produit, p.nom, p.nom_ar, p.tendance, p.photo, COALESCE(b.nom, '') AS marque
+                SELECT p.id, p.code_produit, p.nom, p.nom_ar, p.tendance, p.photo, p.contribue_par, p.confirme_le,
+                       COALESCE(b.nom, '') AS marque
                 FROM catalog_product p LEFT JOIN catalog_brand b ON b.id = p.brand_id
                 WHERE $filtre
                 ORDER BY p.score DESC, p.id DESC LIMIT $nb OFFSET $debut");
@@ -398,6 +403,7 @@ class Rayons
                     'nom' => $p['nom'],
                     'nom_ar' => $p['nom_ar'] ?: null,
                     'tendance' => (int)$p['tendance'] === 1,
+                    'nouveau_le' => $p['contribue_par'] !== null && $p['confirme_le'] ? substr((string)$p['confirme_le'], 0, 10) : null,
                     'marque' => $p['marque'],
                     'photo' => $p['photo'] ?: null,
                 ];

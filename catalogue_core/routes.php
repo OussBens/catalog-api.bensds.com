@@ -7,9 +7,9 @@
  *   GET /rayons/{code}/products?page=&limit=[&depuis=AAAA-MM-JJ]
  *                                            une page des produits proposés par le rayon (les mieux classés,
  *                                            porc et alcool exclus ; depuis : seulement ceux devenus tendance
- *                                            depuis ce jour) : {rayon, total, page, limit, total_pages,
- *                                            products: [{id, code_barres, codes_barres, nom, nom_ar, tendance,
- *                                            marque, photo}]}
+ *                                            ou nouveaux sur le marché depuis ce jour) : {rayon, total, page,
+ *                                            limit, total_pages, products: [{id, code_barres, codes_barres, nom,
+ *                                            nom_ar, tendance, nouveau_le, marque, photo}]}
  *   POST /tendance                           envoi d'un poste CaisseDZ Desktop (X-Device-Id + X-License-Key,
  *                                            sa licence BENS signée) : {produits: [{code_barres, codes_barres, nom,
  *                                            nom_ar, marque, categorie}], confirmations: [{code_barres, vote}],
