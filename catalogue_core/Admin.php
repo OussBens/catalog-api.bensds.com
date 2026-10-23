@@ -14,7 +14,8 @@
  *   moderer       confirmer ou supprimer à la main un produit à confirmer
  *   sansTendance  plus aucune tendance dans des rayons (tendance imposée à 0, gardée aux recalculs)
  *   comparer      quels codes-barres d'une boutique le catalogue a déjà (sans compter de recherche)
- *   importer      les produits d'une boutique : les absents sont créés (confirmés, rangés), tous mis en tendance
+ *   importer      les produits d'une boutique : les absents sont créés (confirmés, rangés dans les rayons de la
+ *                 boutique), tous mis en tendance
  */
 class Admin
 {
@@ -304,11 +305,24 @@ class Admin
 
     /**
      * Les produits [produits] d'une boutique ({code_barres, nom}) : un code-barres absent du catalogue devient un
-     * produit confirmé (créé par `ADMIN`, rangé dans son rayon, porc / alcool exclus) ; un produit déjà là n'est pas
-     * modifié. Tous ont leur tendance imposée à 1. Renvoie {crees: [{code_barres, id}], tendances, ignores}.
+     * produit confirmé (créé par `ADMIN`, porc / alcool exclus) ; un produit déjà là n'est pas modifié. Tous ont leur
+     * tendance imposée à 1. Renvoie {crees: [{code_barres, id}], tendances, ignores}.
+     * [rayons] (codes, facultatif) : les rayons de la boutique. Un produit créé que son nom range ailleurs (ou nulle
+     * part : « TENT ANDREA BN ») va dans le premier ; il reçoit pour catégorie le nom de son rayon, que le tri lit
+     * avant le nom (Rayons::classer) : un reclassement le laisse où il est.
      */
-    public static function importer(PDO $db, $produits)
+    public static function importer(PDO $db, $produits, $rayons = null)
     {
+        $categories = [];
+        if ($rayons !== null) {
+            if (!is_array($rayons) || !$rayons || count($rayons) > 50) {
+                throw new Exception('rayons : une liste de codes de rayons', 400);
+            }
+            foreach (array_values(array_unique(array_map('strval', $rayons))) as $code) {
+                $categories[$code] = self::ligneRayon($db, $code)['nom_fr'];
+            }
+        }
+        $actifs = $categories ? Rayons::preparer($db) : null;
         $fiches = [];
         $ignores = [];
         foreach (self::lot($produits, 'produits') as $x) {
@@ -330,7 +344,12 @@ class Admin
                     $ignores[] = $code;
                     continue;
                 }
-                $nouveaux[] = ['code_barres' => $code, 'nom' => $f['nom']];
+                $n = ['code_barres' => $code, 'nom' => $f['nom']];
+                if ($categories) {
+                    $rayon = Rayons::classer($f['nom'], '', $actifs);
+                    $n['categorie'] = $categories[isset($categories[$rayon]) ? $rayon : array_key_first($categories)];
+                }
+                $nouveaux[] = $n;
             }
         }
         Contributions::appliquer($db, 'ADMIN', $nouveaux);

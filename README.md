@@ -185,9 +185,11 @@ Pour amener d'un coup les produits d'une boutique (l'export de son logiciel) dan
 - `POST /admin/comparer {codes: [...]}` (300 au plus) : `{existants: [{code_barres, id, nom, photo, rayon,
   tendance}], absents, invalides}`, **sans compter de recherche** (contrairement à `GET /products/barcode`, qui
   ajoute 100 au score).
-- `POST /admin/importer {produits: [{code_barres, nom}]}` (300 au plus) : un absent est créé confirmé
-  (`contribue_par` = `ADMIN`, rangé dans son rayon, porc / alcool exclus) ; un produit déjà là n'est pas modifié ;
-  tous ont leur tendance imposée à 1 → `{crees: [{code_barres, id}], tendances, ignores}`.
+- `POST /admin/importer {produits: [{code_barres, nom}], rayons: [...]}` (300 au plus) : un absent est créé
+  confirmé (`contribue_par` = `ADMIN`, porc / alcool exclus) ; un produit déjà là n'est pas modifié ; tous ont leur
+  tendance imposée à 1 → `{crees: [{code_barres, id}], tendances, ignores}`. `rayons` (facultatif) : les rayons de
+  la boutique ; un produit créé que son nom range ailleurs, ou nulle part (noms abrégés : « TENT ANDREA BN »), va
+  dans le premier, avec pour catégorie le nom de son rayon (le tri la lit avant le nom : un reclassement le laisse).
 - `tool/import_boutique.py` (jamais déployé) enchaîne tout depuis un PC : sans `--appliquer`, comparaison seule
   (rapport `<csv>_comparaison.csv`) ; avec, les trois étapes puis une photo par produit créé, prise sur
   Open Beauty Facts / Open Food Facts (CC BY-SA) d'après le code-barres (`<csv>_crees.csv`, `<csv>_sans_photo.csv`,

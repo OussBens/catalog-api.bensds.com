@@ -6,7 +6,8 @@
 Le processus (--appliquer) :
   1. plus aucune tendance dans les rayons --rayons (cosmétiques, hygiène, parapharmacie) : POST /admin/sans-tendance ;
   2. chaque produit de la boutique : absent → créé (confirmé, rangé dans son rayon), déjà là → pas modifié ;
-     tous mis en tendance : POST /admin/importer ;
+     tous mis en tendance : POST /admin/importer ; un produit créé que son nom range hors de ces rayons (ou nulle
+     part) va dans le premier (cosmétiques) ;
   3. une photo pour chaque produit créé, prise sur Open Beauty Facts / Open Food Facts (licence CC BY-SA)
      d'après son code-barres : POST /products/{id}/photo.
 
@@ -144,6 +145,8 @@ def envoyer_photo(cfg, produit_id, octets, genre):
 
 
 def main():
+    for flux in (sys.stdout, sys.stderr):
+        flux.reconfigure(encoding='utf-8', errors='replace')  # console Windows (cp1256…)
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     a.add_argument('csv')
     a.add_argument('--appliquer', action='store_true', help='modifier le catalogue (sinon : comparaison seule)')
@@ -175,8 +178,9 @@ def main():
     etat = json.load(open(etat_chemin, encoding='utf-8')) if os.path.exists(etat_chemin) else {'crees': {}, 'photos': {}}
     garder = lambda: json.dump(etat, open(etat_chemin, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 
+    rayons = [x.strip() for x in o.rayons.split(',') if x.strip()]
     if not etat.get('sans_tendance'):
-        r = appel(cfg, 'POST', '/admin/sans-tendance', {'rayons': [x.strip() for x in o.rayons.split(',') if x.strip()]})
+        r = appel(cfg, 'POST', '/admin/sans-tendance', {'rayons': rayons})
         print(f'1. Plus de tendance dans {", ".join(r["rayons"])} : {r["produits"]} produits')
         etat['sans_tendance'] = r
         garder()
@@ -185,7 +189,7 @@ def main():
 
     tendances = 0
     for i, lot in lots(produits):
-        r = appel(cfg, 'POST', '/admin/importer', {'produits': lot})
+        r = appel(cfg, 'POST', '/admin/importer', {'produits': lot, 'rayons': rayons})
         for c in r['crees']:
             etat['crees'][c['code_barres']] = c['id']
         tendances += r['tendances']

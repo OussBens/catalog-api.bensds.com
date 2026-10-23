@@ -155,6 +155,20 @@ Admin::recalculer($db, $j);
 check('importer : tendance gardée au recalcul', $tendanceDe('3600000000028') === 1 && $tendanceDe('6130000000017') === 1);
 $nouveautes = Rayons::produits($db, 'cosmetiques', 1, 50, $j->format('Y-m-d'));
 check('importer : proposé dans les nouveautés du rayon', in_array('6130000000017', array_column($nouveautes['products'], 'code_barres'), true));
+$imp = Admin::importer($db, [
+    ['code_barres' => '6130000000031', 'nom' => 'TENT ANDREA BN'],
+    ['code_barres' => '6130000000048', 'nom' => 'LAIT DEMAQ EVOLUDERM 250ML'],
+    ['code_barres' => '6130000000055', 'nom' => 'SHAMPOING DOUX 400ML'],
+], ['cosmetiques', 'hygiene', 'parapharmacie']);
+$rayonDe = function ($code) use ($db) {
+    return $db->query("SELECT rayon_code FROM catalog_product WHERE code_produit = '$code'")->fetchColumn();
+};
+check('importer avec rayons : sans rayon ou hors beauté → cosmétiques, hygiène gardée', count($imp['crees']) === 3
+    && $rayonDe('6130000000031') === 'cosmetiques' && $rayonDe('6130000000048') === 'cosmetiques' && $rayonDe('6130000000055') === 'hygiene');
+Admin::reclasser($db, 0);
+check('importer avec rayons : le reclassement les laisse', $rayonDe('6130000000031') === 'cosmetiques'
+    && $rayonDe('6130000000048') === 'cosmetiques' && $rayonDe('6130000000055') === 'hygiene');
+check('importer : rayon inconnu → 404', erreur(function () use ($db) { Admin::importer($db, [], ['inconnu']); }) === 404);
 check('importer : rien de neuf au second passage', Admin::importer($db, [['code_barres' => '6130000000017', 'nom' => 'Vernis']])['crees'] === []);
 
 // ---- Le jeton et les routes ------------------------------------------------------------------------

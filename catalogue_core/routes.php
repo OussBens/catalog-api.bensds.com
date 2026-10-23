@@ -156,7 +156,8 @@ function adminRoute(PDO $db, $method, $a, $b, $c)
             $donnees = Admin::comparer($db, adminCorps()['codes'] ?? null);
             break;
         case 'POST importer':
-            $donnees = Admin::importer($db, adminCorps()['produits'] ?? null);
+            $corps = adminCorps();
+            $donnees = Admin::importer($db, $corps['produits'] ?? null, $corps['rayons'] ?? null);
             break;
         case 'POST produits/*/confirmer':
         case 'POST produits/*/supprimer':
