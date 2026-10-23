@@ -12,10 +12,15 @@
  *   recalculer    les tendances de tous les produits vendus, même déjà recalculés aujourd'hui
  *   aConfirmer    les produits ajoutés par les boutiques en attente de confirmation, avec leurs votes
  *   moderer       confirmer ou supprimer à la main un produit à confirmer
+ *   sansTendance  plus aucune tendance dans des rayons (tendance imposée à 0, gardée aux recalculs)
+ *   comparer      quels codes-barres d'une boutique le catalogue a déjà (sans compter de recherche)
+ *   importer      les produits d'une boutique : les absents sont créés (confirmés, rangés), tous mis en tendance
  */
 class Admin
 {
     const LOT_SECONDES = 15;
+    /** Codes-barres ou produits par appel de comparer / importer (le corps d'une requête : 64 Ko au plus). */
+    const LOT_BOUTIQUE = 300;
 
     private static function q(PDO $db, $sql, array $p = [])
     {
@@ -233,5 +238,122 @@ class Admin
             throw $e;
         }
         return ['id' => (int)$id, 'action' => $action];
+    }
+
+    /**
+     * Plus aucune tendance dans les rayons [rayons] (codes) : chaque produit y a sa tendance imposée à 0, que les
+     * recalculs gardent (Tendance::recalculer). Renvoie {rayons, produits}.
+     */
+    public static function sansTendance(PDO $db, $rayons)
+    {
+        if (!is_array($rayons) || !$rayons || count($rayons) > 50) {
+            throw new Exception('rayons : une liste de codes de rayons', 400);
+        }
+        $rayons = array_values(array_unique(array_map('strval', $rayons)));
+        foreach ($rayons as $code) {
+            self::ligneRayon($db, $code);
+        }
+        $marques = implode(',', array_fill(0, count($rayons), '?'));
+        $n = (int)self::q($db, "SELECT COUNT(*) AS n FROM catalog_product WHERE rayon_code IN ($marques)", $rayons)[0]['n'];
+        $db->prepare("UPDATE catalog_product SET tendance = 0, tendance_le = NULL, tendance_forcee = 0 WHERE rayon_code IN ($marques)")
+           ->execute($rayons);
+        return ['rayons' => $rayons, 'produits' => $n];
+    }
+
+    /** Les codes-barres [codes] lus ; exception 400 si ce n'est pas une liste de LOT_BOUTIQUE au plus. */
+    private static function lot($liste, $nom)
+    {
+        if (!is_array($liste) || count($liste) > self::LOT_BOUTIQUE) {
+            throw new Exception("$nom : une liste de " . self::LOT_BOUTIQUE . ' au plus', 400);
+        }
+        return array_values($liste);
+    }
+
+    /**
+     * Ce que le catalogue a déjà parmi les codes-barres [codes] d'une boutique, sans compter de recherche (le
+     * classement ne bouge pas) : {existants: [{code_barres, id, nom, photo, rayon, tendance}], absents, invalides}.
+     */
+    public static function comparer(PDO $db, $codes)
+    {
+        $codes = array_values(array_unique(array_map(function ($c) { return is_scalar($c) ? trim((string)$c) : ''; },
+            self::lot($codes, 'codes'))));
+        $valides = array_values(array_filter($codes, [Contributions::class, 'codeValide']));
+        $ids = Tendance::produitsParCodeBarres($db, $valides);
+        $produits = [];
+        if ($ids) {
+            $liste = implode(',', array_map('intval', array_unique(array_values($ids))));
+            foreach (self::q($db, "SELECT id, nom, photo, rayon_code, tendance FROM catalog_product WHERE id IN ($liste)") as $p) {
+                $produits[(int)$p['id']] = $p;
+            }
+        }
+        $existants = [];
+        $absents = [];
+        foreach ($valides as $c) {
+            $p = isset($ids[$c]) ? ($produits[$ids[$c]] ?? null) : null;
+            if ($p === null) {
+                $absents[] = $c;
+                continue;
+            }
+            $existants[] = [
+                'code_barres' => $c, 'id' => (int)$p['id'], 'nom' => $p['nom'], 'photo' => trim((string)$p['photo']) !== '',
+                'rayon' => $p['rayon_code'], 'tendance' => (int)$p['tendance'] === 1,
+            ];
+        }
+        return ['existants' => $existants, 'absents' => $absents, 'invalides' => array_values(array_diff($codes, $valides))];
+    }
+
+    /**
+     * Les produits [produits] d'une boutique ({code_barres, nom}) : un code-barres absent du catalogue devient un
+     * produit confirmé (créé par `ADMIN`, rangé dans son rayon, porc / alcool exclus) ; un produit déjà là n'est pas
+     * modifié. Tous ont leur tendance imposée à 1. Renvoie {crees: [{code_barres, id}], tendances, ignores}.
+     */
+    public static function importer(PDO $db, $produits)
+    {
+        $fiches = [];
+        $ignores = [];
+        foreach (self::lot($produits, 'produits') as $x) {
+            $f = Contributions::lire(is_array($x) ? ['code_barres' => trim((string)($x['code_barres'] ?? '')), 'nom' => $x['nom'] ?? null] : null);
+            if ($f === null) {
+                $ignores[] = is_array($x) ? (string)($x['code_barres'] ?? '') : '';
+                continue;
+            }
+            // Indexé par « c » + code : une clé PHP faite de chiffres deviendrait un entier.
+            $fiches['c' . $f['codes'][0]] = $f;
+        }
+        $codes = array_map(function ($f) { return $f['codes'][0]; }, array_values($fiches));
+        $ids = Tendance::produitsParCodeBarres($db, $codes);
+        $nouveaux = [];
+        foreach ($fiches as $f) {
+            $code = $f['codes'][0];
+            if (!isset($ids[$code])) {
+                if ($f['nom'] === null) {
+                    $ignores[] = $code;
+                    continue;
+                }
+                $nouveaux[] = ['code_barres' => $code, 'nom' => $f['nom']];
+            }
+        }
+        Contributions::appliquer($db, 'ADMIN', $nouveaux);
+        $ids = Tendance::produitsParCodeBarres($db, $codes);
+        $crees = [];
+        $db->beginTransaction();
+        try {
+            foreach ($nouveaux as $n) {
+                if (isset($ids[$n['code_barres']])) {
+                    Confirmations::confirmer($db, $ids[$n['code_barres']], 'ADMIN');
+                    $crees[] = ['code_barres' => $n['code_barres'], 'id' => $ids[$n['code_barres']]];
+                }
+            }
+            $db->commit();
+        } catch (Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+        $tous = array_values(array_unique(array_values($ids)));
+        if ($tous) {
+            $db->exec('UPDATE catalog_product SET tendance_forcee = 1 WHERE id IN (' . implode(',', array_map('intval', $tous)) . ')');
+            Tendance::recalculer($db, $tous);
+        }
+        return ['crees' => $crees, 'tendances' => count($tous), 'ignores' => array_values(array_unique(array_map('strval', $ignores)))];
     }
 }

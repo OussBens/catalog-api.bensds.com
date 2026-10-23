@@ -172,6 +172,29 @@ tickets}]}` → `{ventes, inconnus, crees, completes}`.
 **Mise en service** : déployer, `admin_rayons.php` → **Installer / mettre à jour les tables**, puis
 **Reclasser tout le catalogue** (reprend les noms arabes).
 
+## Import d'une boutique et tendance imposée (2026-10-24)
+
+Pour amener d'un coup les produits d'une boutique (l'export de son logiciel) dans le catalogue et en tendance.
+
+- `catalog_product.tendance_forcee` : `NULL` = tendance calculée (comme avant) ; `1` / `0` = imposée par
+  l'administration, gardée par chaque recalcul (`Tendance::recalculer`). Une tendance imposée compte au moins
+  les points d'une tendance tout juste atteinte (3 boutiques, 20 tickets), pour remonter dans son rayon.
+  Revenir au calcul : `UPDATE catalog_product SET tendance_forcee = NULL WHERE …`, puis « Recalculer les tendances ».
+- `POST /admin/sans-tendance {rayons: ["cosmetiques", "hygiene", "parapharmacie"]}` : chaque produit de ces rayons a sa tendance
+  imposée à 0 → `{rayons, produits}`.
+- `POST /admin/comparer {codes: [...]}` (300 au plus) : `{existants: [{code_barres, id, nom, photo, rayon,
+  tendance}], absents, invalides}`, **sans compter de recherche** (contrairement à `GET /products/barcode`, qui
+  ajoute 100 au score).
+- `POST /admin/importer {produits: [{code_barres, nom}]}` (300 au plus) : un absent est créé confirmé
+  (`contribue_par` = `ADMIN`, rangé dans son rayon, porc / alcool exclus) ; un produit déjà là n'est pas modifié ;
+  tous ont leur tendance imposée à 1 → `{crees: [{code_barres, id}], tendances, ignores}`.
+- `tool/import_boutique.py` (jamais déployé) enchaîne tout depuis un PC : sans `--appliquer`, comparaison seule
+  (rapport `<csv>_comparaison.csv`) ; avec, les trois étapes puis une photo par produit créé, prise sur
+  Open Beauty Facts / Open Food Facts (CC BY-SA) d'après le code-barres (`<csv>_crees.csv`, `<csv>_sans_photo.csv`,
+  reprise après coupure par `<csv>_etat.json`). Seuls les EAN / UPC à clé juste partent ; prix et stocks restent
+  sur le PC. `API_URL`, `REV_SERVER_TOKEN`, `API_KEY` : environnement ou `.env`.
+- **Tests** : `php -d extension=sodium catalogue_core/tests/admin_test.php`.
+
 ## Deploying (`mise run deploy` / `mise run depwin`)
 
 Only what is **committed** goes up, and only the files that changed in git since the version live

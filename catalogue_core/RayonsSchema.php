@@ -7,7 +7,8 @@
  *   catalog_rayon            ~15 rayons : noms FR/AR/EN, icône Lucide, ordre, mots-clés de tri
  *   catalog_product (+)      rayon_code (rayon calculé), exclu (porc / alcool),
  *                            consultations (recherches par code-barres), score (classement), classe_le,
- *                            nom_ar, tendance (postes_90j, ventes_90j, points_tendance, tendance, tendance_le…)
+ *                            nom_ar, tendance (postes_90j, ventes_90j, points_tendance, tendance, tendance_le…),
+ *                            tendance_forcee (NULL : calculée ; 1 / 0 : imposée par l'administration)
  *   catalog_vente_jour       tickets par produit, poste et jour (POST /tendance)
  *   catalog_contribution     produits créés ou complétés par les boutiques (Contributions.php)
  *   catalog_poste            dernier envoi de chaque poste
@@ -22,7 +23,7 @@ class RayonsSchema
      * Version du schéma de ce code : à augmenter à chaque table ou colonne ajoutée. L'API compare avec celle de la
      * base (catalog_schema) à chaque requête et installe ce qui manque toute seule (RayonsSchema::assurer).
      */
-    const VERSION = 4;
+    const VERSION = 5;
 
     const COLONNES_PRODUIT = [
         'rayon_code VARCHAR(40) NULL',
@@ -38,6 +39,7 @@ class RayonsSchema
         'tendance TINYINT NOT NULL DEFAULT 0',
         'tendance_le DATETIME NULL',
         'tendance_maj DATE NULL',
+        'tendance_forcee TINYINT NULL',
         'contribue_par VARCHAR(20) NULL',
         'a_confirmer TINYINT NOT NULL DEFAULT 0',
         'confirmation INT NULL',

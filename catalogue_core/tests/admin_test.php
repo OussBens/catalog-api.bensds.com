@@ -107,6 +107,56 @@ check('modération notée (ADMIN)', $log === [['action' => 'confirme', 'poste' =
 check('stats : contributions par jour', $st = Tendance::stats($db, $j) and $st['contributions_jours'][0]['cree'] === 2
     && $st['contributions_jours'][0]['confirme'] === 1 && $st['contributions_jours'][0]['supprime'] === 1);
 
+// ---- Une boutique de cosmétiques : rayons sans tendance, comparaison, import -----------------------------
+$db->exec("INSERT INTO catalog_category VALUES (2, 'Cosmetics, Lipsticks', NULL)");
+$ins = $db->prepare('INSERT INTO catalog_product (code_produit, nom, category_id, photo) VALUES (?, ?, 2, ?)');
+$ins->execute(['3600000000011', 'Rouge à lèvres Velours', 'https://x/r.jpg']);
+$ins->execute(['3600000000028', 'Mascara Volume', null]);
+Admin::reclasser($db, 0);
+foreach (['CD-AAAA-AAAA', 'CD-BBBB-BBBB', 'CD-CCCC-CCCC'] as $poste) {
+    Tendance::enregistrer($db, $poste, ['ventes' => [['jour' => $j->format('Y-m-d'), 'code_barres' => '3600000000028', 'tickets' => 10]]], $j);
+}
+$tendanceDe = function ($code) use ($db) {
+    return (int)$db->query("SELECT tendance FROM catalog_product WHERE code_produit = '$code'")->fetchColumn();
+};
+check('mascara vendu par 3 boutiques : tendance', $tendanceDe('3600000000028') === 1);
+$st = Admin::sansTendance($db, ['cosmetiques', 'hygiene']);
+check('sans tendance : les 2 produits des cosmétiques', $st['produits'] === 2 && $tendanceDe('3600000000028') === 0);
+Admin::recalculer($db, $j);
+check('sans tendance : gardé au recalcul malgré les ventes', $tendanceDe('3600000000028') === 0);
+check('sans tendance : les autres rayons restent calculés', $db->query("SELECT COUNT(*) FROM catalog_product WHERE rayon_code <> 'cosmetiques' AND tendance_forcee IS NOT NULL")->fetchColumn() == 0);
+check('sans tendance : rayon inconnu → 404', erreur(function () use ($db) { Admin::sansTendance($db, ['inconnu']); }) === 404);
+check('sans tendance : pas de liste → 400', erreur(function () use ($db) { Admin::sansTendance($db, 'cosmetiques'); }) === 400);
+
+$avantConsult = (int)$db->query("SELECT consultations FROM catalog_product WHERE code_produit = '3600000000011'")->fetchColumn();
+$cmp = Admin::comparer($db, ['3600000000011', '3600000000028', '6130000000017', '09660', '3600000000011']);
+check('comparer : existants (photo ou non)', count($cmp['existants']) === 2 && $cmp['existants'][0]['photo'] === true
+    && $cmp['existants'][1]['photo'] === false && $cmp['existants'][0]['rayon'] === 'cosmetiques');
+check('comparer : absents, codes internes à part', $cmp['absents'] === ['6130000000017'] && $cmp['invalides'] === ['09660']);
+check('comparer : aucune recherche comptée', (int)$db->query("SELECT consultations FROM catalog_product WHERE code_produit = '3600000000011'")->fetchColumn() === $avantConsult);
+check('comparer : lot trop gros → 400', erreur(function () use ($db) { Admin::comparer($db, array_fill(0, Admin::LOT_BOUTIQUE + 1, '3600000000011')); }) === 400);
+
+$nomAvant = $db->query("SELECT nom FROM catalog_product WHERE code_produit = '3600000000028'")->fetchColumn();
+$imp = Admin::importer($db, [
+    ['code_barres' => '3600000000028', 'nom' => 'MASCARA VOL'],
+    ['code_barres' => '6130000000017', 'nom' => 'Vernis à ongles Rose'],
+    ['code_barres' => '09660', 'nom' => 'Code interne'],
+    ['code_barres' => '6130000000024'],
+]);
+check('importer : 1 créé, codes interne et sans nom ignorés', count($imp['crees']) === 1 && $imp['crees'][0]['code_barres'] === '6130000000017'
+    && $imp['ignores'] === ['09660', '6130000000024'] && $imp['tendances'] === 2);
+$vernis = $db->query("SELECT * FROM catalog_product WHERE code_produit = '6130000000017'")->fetch(PDO::FETCH_ASSOC);
+check('importer : créé confirmé, rangé, en tendance', (int)$vernis['a_confirmer'] === 0 && $vernis['confirme_le'] !== null
+    && $vernis['contribue_par'] === 'ADMIN' && $vernis['rayon_code'] === 'cosmetiques' && (int)$vernis['tendance'] === 1
+    && $vernis['tendance_le'] !== null && (int)$vernis['points_tendance'] === Tendance::points(3, 20));
+check('importer : produit existant pas modifié, mis en tendance', $tendanceDe('3600000000028') === 1
+    && $db->query("SELECT nom FROM catalog_product WHERE code_produit = '3600000000028'")->fetchColumn() === $nomAvant);
+Admin::recalculer($db, $j);
+check('importer : tendance gardée au recalcul', $tendanceDe('3600000000028') === 1 && $tendanceDe('6130000000017') === 1);
+$nouveautes = Rayons::produits($db, 'cosmetiques', 1, 50, $j->format('Y-m-d'));
+check('importer : proposé dans les nouveautés du rayon', in_array('6130000000017', array_column($nouveautes['products'], 'code_barres'), true));
+check('importer : rien de neuf au second passage', Admin::importer($db, [['code_barres' => '6130000000017', 'nom' => 'Vernis']])['crees'] === []);
+
 // ---- Le jeton et les routes ------------------------------------------------------------------------
 $_ENV['REV_SERVER_TOKEN'] = 'jeton-partage';
 $_SERVER['HTTP_X_SERVER_TOKEN'] = 'faux';

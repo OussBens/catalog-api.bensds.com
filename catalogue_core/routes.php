@@ -149,6 +149,15 @@ function adminRoute(PDO $db, $method, $a, $b, $c)
         case 'GET a-confirmer':
             $donnees = Admin::aConfirmer($db, $_GET['page'] ?? 1, $_GET['limit'] ?? 50);
             break;
+        case 'POST sans-tendance':
+            $donnees = Admin::sansTendance($db, adminCorps()['rayons'] ?? null);
+            break;
+        case 'POST comparer':
+            $donnees = Admin::comparer($db, adminCorps()['codes'] ?? null);
+            break;
+        case 'POST importer':
+            $donnees = Admin::importer($db, adminCorps()['produits'] ?? null);
+            break;
         case 'POST produits/*/confirmer':
         case 'POST produits/*/supprimer':
             $donnees = Admin::moderer($db, (int)$b, $c);

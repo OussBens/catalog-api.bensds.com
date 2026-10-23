@@ -14,6 +14,9 @@
  *                        tendance = vendu par au moins postesMin() boutiques ET dans au moins ticketsMin()
  *                        tickets (.env TENDANCE_POSTES_MIN, TENDANCE_TICKETS_MIN ; 3 et 20 par défaut) ;
  *                        tendance_le : depuis quand (les postes ne téléchargent que les nouveaux) ;
+ *                        tendance_forcee : 1 ou 0 imposé par l'administration (Admin::forcerTendance), gardé à
+ *                        chaque recalcul ; une tendance imposée compte au moins comme une tendance tout juste
+ *                        atteinte (points de postesMin() boutiques et ticketsMin() tickets) ;
  *                        nom_ar : nom arabe (le nom lui-même s'il est en arabe, repris par Rayons::reclasser,
  *                        sinon le premier proposé par un poste, nom_ar_poste).
  *   catalog_poste        dernier envoi de chaque poste (tableau de bord BENS).
@@ -213,7 +216,7 @@ class Tendance
                 $calcul[(int)$r['product_id']] = [(int)$r['postes'], (int)$r['ventes']];
             }
             $avant = [];
-            foreach ($db->query("SELECT id, tendance, tendance_le FROM catalog_product WHERE id IN ($liste)")
+            foreach ($db->query("SELECT id, tendance, tendance_le, tendance_forcee FROM catalog_product WHERE id IN ($liste)")
                          ->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $avant[(int)$r['id']] = $r;
             }
@@ -226,6 +229,13 @@ class Tendance
                     [$postes, $ventes] = $calcul[$id] ?? [0, 0];
                     $points = self::points($postes, $ventes);
                     $tendance = self::estTendance($postes, $ventes) ? 1 : 0;
+                    $forcee = $avant[$id]['tendance_forcee'];
+                    if ($forcee !== null) {
+                        $tendance = (int)$forcee === 1 ? 1 : 0;
+                        if ($tendance === 1) {
+                            $points = max($points, self::points(self::postesMin(), self::ticketsMin()));
+                        }
+                    }
                     // tendance_le : le jour où il l'est devenu (gardé tant qu'il le reste).
                     $le = $tendance ? ((int)$avant[$id]['tendance'] === 1 && $avant[$id]['tendance_le'] ? $avant[$id]['tendance_le'] : $maintenant) : null;
                     $maj->execute([$postes, $ventes, $points, $points, $tendance, $le, $aujourdhui->format('Y-m-d'), $id]);
