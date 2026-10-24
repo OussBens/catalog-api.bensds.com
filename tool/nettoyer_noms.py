@@ -23,10 +23,12 @@ Configuration : API_URL et REV_SERVER_TOKEN, lus dans l'environnement, sinon dan
 import argparse
 import collections
 import csv
+import http.client
 import json
 import os
 import re
 import sys
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -144,25 +146,40 @@ def lire_catalogue(dossier, relire):
     return sorted(produits.values(), key=lambda p: p['id'])
 
 
+CONNEXIONS = threading.local()
+
+
+def lire_json(hote, chemin):
+    """GET https://[hote][chemin] sur une connexion gardée ouverte par fil (Open Facts ignore un flot de nouvelles
+    connexions) : le JSON, {} si le produit n'y est pas (404), None si l'hôte ne répond pas."""
+    connexions = CONNEXIONS.__dict__
+    for essai in range(4):
+        c = connexions.get(hote) or http.client.HTTPSConnection(hote, timeout=30)
+        connexions[hote] = c
+        try:
+            c.request('GET', chemin, headers={'User-Agent': AGENT})
+            r = c.getresponse()
+            corps = r.read()
+            if r.status == 404 or (r.status == 500 and essai >= 1):  # 500 : une fiche cassée chez eux, toujours
+                return {}
+            if r.status == 200:
+                return json.loads(corps)
+        except (OSError, http.client.HTTPException, ValueError):
+            pass
+        c.close()
+        connexions.pop(hote, None)
+        time.sleep(3 if essai == 0 else 10 * essai)
+    return None
+
+
 def nom_public(code):
-    """Le nom du produit [code] sur Open Beauty / Food Facts (sa marque devant s'il ne la dit pas), ou None."""
+    """Le nom du produit [code] sur Open Beauty / Food Facts (sa marque devant s'il ne la dit pas), None s'il n'y
+    est pas, False si une source n'a pas répondu (à chercher au prochain lancement)."""
     champs = 'product_name_fr,product_name_en,product_name,generic_name_fr,generic_name,brands'
     for base in SOURCES:
-        for essai in range(3):
-            try:
-                req = urllib.request.Request(f'{base}/api/v2/product/{code}.json?fields={champs}', headers={'User-Agent': AGENT})
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    d = json.load(r)
-                break
-            except urllib.error.HTTPError as e:
-                d = {} if e.code == 404 else None
-                if d is not None:
-                    break
-            except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError):
-                d = None
-            time.sleep(5 * (essai + 1))
+        d = lire_json(base.split('//')[1], f'/api/v2/product/{code}.json?fields={champs}')
         if d is None:
-            raise ConnectionError(f'{base} ne répond pas')
+            return False
         if d.get('status') != 1:
             continue
         p = d['product']
@@ -231,19 +248,25 @@ def main():
     juges = [(p, d) for p, d in juges if d]
 
     perdus = [p['code_produit'] for p, d in juges if d == ['texte perdu'] and p['code_produit'] not in etat['trouves']]
-    for i, code in enumerate(perdus, 1):
-        etat['trouves'][code] = nom_public(code)
-        if i % 20 == 0 or i == len(perdus):
-            garder()
-        print(f'2. Noms perdus cherchés : {i}/{len(perdus)}', end='\r')
+    with ThreadPoolExecutor(3) as ex:  # Open Facts : 100 lectures de produit par minute au plus
+        for i, (code, nom) in enumerate(zip(perdus, ex.map(nom_public, perdus)), 1):
+            if nom is not False:
+                etat['trouves'][code] = nom
+            if i % 20 == 0 or i == len(perdus):
+                garder()
+            print(f'2. Noms perdus cherchés : {i}/{len(perdus)}', end='\r')
     if perdus:
         print()
+    pas_cherches = sum(1 for p, d in juges if d == ['texte perdu'] and p['code_produit'] not in etat['trouves'])
 
     plan, laisses = [], collections.Counter()
     for p, d in juges:
         code = p['code_produit']
+        if d == ['texte perdu'] and code not in etat['trouves']:
+            laisses['texte perdu, pas encore cherché'] += 1
+            continue
         if d == ['texte perdu']:
-            nom = etat['trouves'].get(code)
+            nom = etat['trouves'][code]
             action = ('renommer', nom, 'texte perdu, retrouvé') if nom else ('supprimer', None, 'texte perdu, introuvable')
         elif set(d) & A_SUPPRIMER:
             action = ('supprimer', None, ', '.join(x for x in d if x in A_SUPPRIMER))
@@ -264,6 +287,8 @@ def main():
         print(f'   {act:9} {n:7}  {raison}')
     print(f'   laissés  {sum(laisses.values()):7}  ({", ".join(f"{k} {v}" for k, v in laisses.items())})')
     print(f'Plan : {os.path.join(o.sortie, "plan.csv")}')
+    if pas_cherches:
+        print(f'{pas_cherches} noms perdus pas encore cherchés (Open Facts sans réponse) : relancer pour les chercher.')
     if not o.appliquer:
         print('Rien n\'a été modifié ; --appliquer pour lancer.')
         return
