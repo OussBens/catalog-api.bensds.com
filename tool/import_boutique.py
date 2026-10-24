@@ -137,11 +137,16 @@ def envoyer_photo(cfg, produit_id, octets, genre):
     req = urllib.request.Request(f'{cfg["url"]}/products/{produit_id}/photo', data=corps, method='POST',
                                  headers={'X-API-Key': cfg['cle'], 'User-Agent': AGENT,
                                           'Content-Type': f'multipart/form-data; boundary={limite}'})
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            return json.load(r).get('success') is True
-    except urllib.error.HTTPError:
-        return False
+    for essai in range(5):  # une coupure du réseau ou du serveur : on réessaie un peu plus tard
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return json.load(r).get('success') is True
+        except urllib.error.HTTPError:
+            return False
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if essai == 4:
+                raise
+            time.sleep(30 * (essai + 1))
 
 
 def main():
