@@ -171,6 +171,54 @@ check('importer avec rayons : le reclassement les laisse', $rayonDe('61300000000
 check('importer : rayon inconnu → 404', erreur(function () use ($db) { Admin::importer($db, [], ['inconnu']); }) === 404);
 check('importer : rien de neuf au second passage', Admin::importer($db, [['code_barres' => '6130000000017', 'nom' => 'Vernis']])['crees'] === []);
 
+// ---- Nettoyage des noms : renommer, supprimer (corbeille), restaurer ------------------------------------
+$ins = $db->prepare('INSERT INTO catalog_product (code_produit, nom, category_id, photo) VALUES (?, ?, 1, ?)');
+$ins->execute(['4810000000011', '??????? ?????', null]);
+$ins->execute(['4810000000028', '4810000000028', 'https://x/c.jpg']);
+$ins->execute(['4810000000035', 'Sablés  chocolat', null]);
+$idDe = function ($code) use ($db) {
+    return (int)$db->query("SELECT id FROM catalog_product WHERE code_produit = '$code'")->fetchColumn();
+};
+$perdu = $idDe('4810000000011');
+$code = $idDe('4810000000028');
+$espaces = $idDe('4810000000035');
+$db->prepare('INSERT INTO catalog_product_barcode (product_id, barcode, is_primary, source_id) VALUES (?, ?, 1, 1)')->execute([$code, '4810000000028']);
+$db->prepare("INSERT INTO catalog_vente_jour VALUES (?, 'CD-AAAA-AAAA', ?, 3)")->execute([$code, $j->format('Y-m-d')]);
+$boutique = $idDe('6130000000017'); // créé par l'import de la boutique ci-dessus (ADMIN, tendance imposée)
+$n = Admin::nettoyer($db, [
+    ['id' => $perdu, 'ancien' => '??????? ?????', 'nom' => 'Soda   Citron  '],
+    ['id' => $espaces, 'ancien' => 'Sablés chocolat', 'nom' => 'Sablés chocolat'], // nom lu différent : laissé
+], [
+    ['id' => $code, 'ancien' => '4810000000028', 'raison' => 'nom = son code-barres'],
+    ['id' => $boutique, 'ancien' => 'Vernis à ongles Rose', 'raison' => 'moins de 4 caractères'],
+    ['id' => 999999, 'ancien' => 'x', 'raison' => 'test'],
+]);
+$nomDe = function ($id) use ($db) {
+    return $db->query("SELECT nom FROM catalog_product WHERE id = $id")->fetchColumn();
+};
+check('nettoyer : 1 renommé, 1 supprimé, 3 laissés', $n['renommes'] === 1 && $n['supprimes'] === 1 && count($n['ignores']) === 3);
+check('nettoyer : nom aux espaces réduits, reclassé', $nomDe($perdu) === 'Soda Citron'
+    && $db->query("SELECT rayon_code FROM catalog_product WHERE id = $perdu")->fetchColumn() === 'boissons');
+check('nettoyer : nom déjà modifié laissé', $nomDe($espaces) === 'Sablés  chocolat');
+check('nettoyer : produit de boutique gardé', $nomDe($boutique) === 'Vernis à ongles Rose'
+    && in_array(['id' => $boutique, 'raison' => 'gardé : produit d\'une boutique ou en tendance imposée'], $n['ignores'], true));
+check('nettoyer : supprimé avec codes-barres et ventes', $nomDe($code) === false
+    && (int)$db->query("SELECT COUNT(*) FROM catalog_product_barcode WHERE product_id = $code")->fetchColumn() === 0
+    && (int)$db->query("SELECT COUNT(*) FROM catalog_vente_jour WHERE product_id = $code")->fetchColumn() === 0);
+$c = $db->query("SELECT raison, produit, codes FROM catalog_corbeille WHERE product_id = $code")->fetch(PDO::FETCH_ASSOC);
+check('nettoyer : ligne et codes-barres dans la corbeille', $c['raison'] === 'nom = son code-barres'
+    && json_decode($c['produit'], true)['photo'] === 'https://x/c.jpg' && json_decode($c['codes'], true)[0]['barcode'] === '4810000000028');
+check('nettoyer : nom vide refusé', Admin::nettoyer($db, [['id' => $perdu, 'ancien' => 'Soda Citron', 'nom' => '  ']], [])['ignores'][0]['raison'] === 'nom invalide');
+check('nettoyer : lot trop gros → 400', erreur(function () use ($db) {
+    Admin::nettoyer($db, [], array_fill(0, Admin::LOT_NETTOYAGE + 1, ['id' => 1, 'ancien' => 'x']));
+}) === 400);
+check('nettoyer : id non entier → 400', erreur(function () use ($db) { Admin::nettoyer($db, [], [['id' => '12', 'ancien' => 'x']]); }) === 400);
+$r = Admin::restaurer($db, [$code, 999999]);
+check('restaurer : remis avec son id et son code-barres', $r === ['restaures' => [$code], 'absents' => [999999]]
+    && $nomDe($code) === '4810000000028' && Tendance::produitsParCodeBarres($db, ['4810000000028']) === ['4810000000028' => $code]
+    && (int)$db->query('SELECT COUNT(*) FROM catalog_corbeille')->fetchColumn() === 0);
+check('restaurer : déjà là → absent', Admin::restaurer($db, [$code])['absents'] === [$code]);
+
 // ---- Le jeton et les routes ------------------------------------------------------------------------
 $_ENV['REV_SERVER_TOKEN'] = 'jeton-partage';
 $_SERVER['HTTP_X_SERVER_TOKEN'] = 'faux';

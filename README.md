@@ -195,6 +195,15 @@ Pour amener d'un coup les produits d'une boutique (l'export de son logiciel) dan
   Open Beauty Facts / Open Food Facts (CC BY-SA) d'après le code-barres (`<csv>_crees.csv`, `<csv>_sans_photo.csv`,
   reprise après coupure par `<csv>_etat.json`). Seuls les EAN / UPC à clé juste partent ; prix et stocks restent
   sur le PC. `API_URL`, `REV_SERVER_TOKEN`, `API_KEY` : environnement ou `.env`.
+- `POST /admin/nettoyer {renommer: [{id, ancien, nom}], supprimer: [{id, ancien, raison}]}` (200 de chaque au
+  plus) : `ancien` est le nom lu à l'analyse ; un produit modifié depuis est laissé. Un supprimé va d'abord dans
+  `catalog_corbeille` (sa ligne et ses codes-barres, en JSON) ; un produit apporté par une boutique
+  (`contribue_par`) ou en tendance imposée est gardé → `{renommes, supprimes, ignores: [{id, raison}]}`.
+  `POST /admin/restaurer {ids: [...]}` remet des produits de la corbeille, avec leur id d'avant.
+- `tool/nettoyer_noms.py --sortie <dossier>` (jamais déployé) : lit tout le catalogue (`GET /products`), juge
+  chaque nom (« ????? » d'un import qui n'était pas en UTF-8, espaces en double, moins de 4 caractères, code HTML,
+  aucune lettre, code-barres, nom bidon, test, prix, description, nom générique), cherche les noms perdus sur
+  Open Beauty / Food Facts et écrit `plan.csv` ; `--appliquer` l'envoie à `/admin/nettoyer` (reprise par `etat.json`).
 - **Tests** : `php -d extension=sodium catalogue_core/tests/admin_test.php`.
 
 ## Deploying (`mise run deploy` / `mise run depwin`)

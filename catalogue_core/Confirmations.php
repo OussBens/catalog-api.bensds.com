@@ -129,7 +129,7 @@ class Confirmations
     }
 
     /** Retire le produit [id] du catalogue, avec ses codes-barres, ses ventes et ses votes. */
-    private static function supprimer(PDO $db, $id)
+    public static function supprimer(PDO $db, $id)
     {
         foreach (['catalog_product_barcode', 'catalog_vente_jour', 'catalog_confirmation'] as $table) {
             $db->prepare("DELETE FROM $table WHERE product_id = ?")->execute([$id]);

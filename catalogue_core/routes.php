@@ -19,7 +19,8 @@
  *   /admin/*                                 l'administration du catalogue pour le tableau de bord BENS (même jeton) :
  *                                            GET catalogue, GET|PUT rayons/{code}, POST rayons {code},
  *                                            POST reclasser {depuis}, POST installer, POST tendances,
- *                                            GET a-confirmer?page=, POST produits/{id}/confirmer|supprimer
+ *                                            GET a-confirmer?page=, POST produits/{id}/confirmer|supprimer,
+ *                                            POST nettoyer {renommer, supprimer}, POST restaurer {ids}
  */
 
 require_once __DIR__ . '/Rayons.php';
@@ -158,6 +159,13 @@ function adminRoute(PDO $db, $method, $a, $b, $c)
         case 'POST importer':
             $corps = adminCorps();
             $donnees = Admin::importer($db, $corps['produits'] ?? null, $corps['rayons'] ?? null);
+            break;
+        case 'POST nettoyer':
+            $corps = adminCorps();
+            $donnees = Admin::nettoyer($db, $corps['renommer'] ?? null, $corps['supprimer'] ?? null);
+            break;
+        case 'POST restaurer':
+            $donnees = Admin::restaurer($db, adminCorps()['ids'] ?? null);
             break;
         case 'POST produits/*/confirmer':
         case 'POST produits/*/supprimer':

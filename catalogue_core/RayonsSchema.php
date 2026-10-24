@@ -13,6 +13,7 @@
  *   catalog_contribution     produits créés ou complétés par les boutiques (Contributions.php)
  *   catalog_poste            dernier envoi de chaque poste
  *   catalog_confirmation     votes des boutiques sur les produits à confirmer (Confirmations.php)
+ *   catalog_corbeille        produits supprimés au nettoyage des noms, pour les restaurer (Admin::nettoyer)
  *
  * Les 50 000 catégories brutes (Open Food / Beauty Facts) restent telles quelles :
  * le rayon est calculé à partir de leur nom et du nom du produit (Rayons::classer).
@@ -23,7 +24,7 @@ class RayonsSchema
      * Version du schéma de ce code : à augmenter à chaque table ou colonne ajoutée. L'API compare avec celle de la
      * base (catalog_schema) à chaque requête et installe ce qui manque toute seule (RayonsSchema::assurer).
      */
-    const VERSION = 5;
+    const VERSION = 6;
 
     const COLONNES_PRODUIT = [
         'rayon_code VARCHAR(40) NULL',
@@ -46,7 +47,8 @@ class RayonsSchema
         'confirme_le DATETIME NULL',
     ];
 
-    const TABLES = ['catalog_rayon', 'catalog_vente_jour', 'catalog_contribution', 'catalog_poste', 'catalog_confirmation'];
+    const TABLES = ['catalog_rayon', 'catalog_vente_jour', 'catalog_contribution', 'catalog_poste', 'catalog_confirmation',
+                    'catalog_corbeille'];
 
     /** Toutes les tables et colonnes sont-elles là ? (Sinon : installer.) */
     public static function aJour(PDO $db)
@@ -149,6 +151,13 @@ class RayonsSchema
             jour DATE NOT NULL,
             tickets INT NOT NULL,
             PRIMARY KEY (product_id, poste, jour)
+        )$moteur");
+        $db->exec("CREATE TABLE IF NOT EXISTS catalog_corbeille (
+            product_id INT PRIMARY KEY,
+            raison VARCHAR(60) NOT NULL DEFAULT '',
+            produit MEDIUMTEXT NOT NULL,
+            codes TEXT NOT NULL,
+            supprime_le DATETIME NOT NULL
         )$moteur");
         $index = [
             'idx_product_rayon ON catalog_product (rayon_code, exclu, score)',

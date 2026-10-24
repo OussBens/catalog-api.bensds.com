@@ -123,7 +123,8 @@ class Contributions
         return ['crees' => $crees, 'completes' => $completes];
     }
 
-    private static function ranger(PDO $db, $id, $nom, $categorie, $photo, $codes, array $rayons)
+    /** Range le produit [id] : rayon, exclu (porc / alcool), score, d'après son nom et sa catégorie. */
+    public static function ranger(PDO $db, $id, $nom, $categorie, $photo, $codes, array $rayons)
     {
         $algerien = false;
         foreach ($codes as $c) {

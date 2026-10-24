@@ -16,12 +16,15 @@
  *   comparer      quels codes-barres d'une boutique le catalogue a déjà (sans compter de recherche)
  *   importer      les produits d'une boutique : les absents sont créés (confirmés, rangés dans les rayons de la
  *                 boutique), tous mis en tendance
+ *   nettoyer      des noms corrigés et des produits supprimés (mis dans catalog_corbeille) ; restaurer : les remettre
  */
 class Admin
 {
     const LOT_SECONDES = 15;
     /** Codes-barres ou produits par appel de comparer / importer (le corps d'une requête : 64 Ko au plus). */
     const LOT_BOUTIQUE = 300;
+    /** Produits renommés ou supprimés par appel de nettoyer / restaurer (le corps : 64 Ko au plus). */
+    const LOT_NETTOYAGE = 200;
 
     private static function q(PDO $db, $sql, array $p = [])
     {
@@ -374,5 +377,126 @@ class Admin
             Tendance::recalculer($db, $tous);
         }
         return ['crees' => $crees, 'tendances' => count($tous), 'ignores' => array_values(array_unique(array_map('strval', $ignores)))];
+    }
+
+    /** Les produits {id, ancien, …} de [liste] (LOT_NETTOYAGE au plus), indexés par id, avec leur ligne actuelle. */
+    private static function lotNettoyage(PDO $db, $liste, $nom)
+    {
+        if (!is_array($liste) || count($liste) > self::LOT_NETTOYAGE) {
+            throw new Exception("$nom : une liste de " . self::LOT_NETTOYAGE . ' au plus', 400);
+        }
+        $lot = [];
+        foreach ($liste as $x) {
+            if (!is_array($x) || !isset($x['id']) || !is_int($x['id']) || !array_key_exists('ancien', $x)) {
+                throw new Exception("$nom : des {id, ancien, …}", 400);
+            }
+            $lot[$x['id']] = $x;
+        }
+        $lignes = [];
+        if ($lot) {
+            $ids = implode(',', array_map('intval', array_keys($lot)));
+            foreach (self::q($db, "SELECT * FROM catalog_product WHERE id IN ($ids)") as $p) {
+                $lignes[(int)$p['id']] = $p;
+            }
+        }
+        return [$lot, $lignes];
+    }
+
+    /**
+     * Le nettoyage des noms du catalogue (tool/nettoyer_noms.py). Chaque produit est donné avec son nom lu à
+     * l'analyse (ancien) : un produit renommé ou supprimé depuis est laissé tel quel.
+     *   renommer   [{id, ancien, nom}] : le nouveau nom (espaces réduits, 200 caractères au plus), le produit reclassé
+     *   supprimer  [{id, ancien, raison}] : le produit va dans catalog_corbeille (sa ligne et ses codes-barres, pour
+     *              restaurer), puis il est retiré avec ses codes-barres, ses ventes et ses votes. Un produit apporté
+     *              par une boutique (contribue_par) ou à la tendance imposée par l'administration est gardé.
+     * Renvoie {renommes, supprimes, ignores: [{id, raison}]}.
+     */
+    public static function nettoyer(PDO $db, $renommer, $supprimer)
+    {
+        [$aRenommer, $lignesR] = self::lotNettoyage($db, $renommer ?? [], 'renommer');
+        [$aSupprimer, $lignesS] = self::lotNettoyage($db, $supprimer ?? [], 'supprimer');
+        $ignores = [];
+        $renommes = 0;
+        $supprimes = 0;
+        $rayons = $aRenommer ? Rayons::preparer($db) : null;
+        $db->beginTransaction();
+        try {
+            foreach ($aRenommer as $id => $x) {
+                $nom = is_string($x['nom'] ?? null) ? trim(preg_replace('/\s+/u', ' ', $x['nom'])) : '';
+                $p = $lignesR[$id] ?? null;
+                if ($nom === '' || mb_strlen($nom) > Contributions::NOM_MAX) {
+                    $ignores[] = ['id' => $id, 'raison' => 'nom invalide'];
+                } elseif ($p === null || $p['nom'] !== $x['ancien']) {
+                    $ignores[] = ['id' => $id, 'raison' => 'introuvable ou déjà modifié'];
+                } else {
+                    $db->prepare('UPDATE catalog_product SET nom = ? WHERE id = ?')->execute([$nom, $id]);
+                    $categorie = $p['category_id'] === null ? [] : self::q($db, 'SELECT nom FROM catalog_category WHERE id = ?', [(int)$p['category_id']]);
+                    $codes = array_column(self::q($db, 'SELECT barcode FROM catalog_product_barcode WHERE product_id = ?', [$id]), 'barcode');
+                    Contributions::ranger($db, $id, $nom, (string)($categorie[0]['nom'] ?? ''), $p['photo'], $codes ?: [(string)$p['code_produit']], $rayons);
+                    $renommes++;
+                }
+            }
+            $corbeille = $db->prepare('INSERT INTO catalog_corbeille (product_id, raison, produit, codes, supprime_le) VALUES (?, ?, ?, ?, ?)');
+            foreach ($aSupprimer as $id => $x) {
+                $p = $lignesS[$id] ?? null;
+                if ($p === null || $p['nom'] !== $x['ancien']) {
+                    $ignores[] = ['id' => $id, 'raison' => 'introuvable ou déjà modifié'];
+                } elseif ($p['contribue_par'] !== null || (string)$p['tendance_forcee'] === '1') {
+                    $ignores[] = ['id' => $id, 'raison' => 'gardé : produit d\'une boutique ou en tendance imposée'];
+                } else {
+                    $codes = self::q($db, 'SELECT barcode, is_primary, source_id FROM catalog_product_barcode WHERE product_id = ?', [$id]);
+                    $corbeille->execute([$id, mb_substr(is_string($x['raison'] ?? null) ? $x['raison'] : '', 0, 60),
+                        json_encode($p, JSON_UNESCAPED_UNICODE), json_encode($codes, JSON_UNESCAPED_UNICODE), date('Y-m-d H:i:s')]);
+                    Confirmations::supprimer($db, $id);
+                    $supprimes++;
+                }
+            }
+            $db->commit();
+        } catch (Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+        return ['renommes' => $renommes, 'supprimes' => $supprimes, 'ignores' => $ignores];
+    }
+
+    /**
+     * Remet dans le catalogue les produits [ids] (LOT_NETTOYAGE au plus) de catalog_corbeille, avec leur id, leur
+     * ligne et leurs codes-barres d'avant. Renvoie {restaures, absents (pas dans la corbeille)}.
+     */
+    public static function restaurer(PDO $db, $ids)
+    {
+        if (!is_array($ids) || count($ids) > self::LOT_NETTOYAGE) {
+            throw new Exception('ids : une liste de ' . self::LOT_NETTOYAGE . ' au plus', 400);
+        }
+        $colonnes = array_keys(self::q($db, 'SELECT * FROM catalog_product LIMIT 1')[0] ?? []);
+        $restaures = [];
+        $absents = [];
+        $db->beginTransaction();
+        try {
+            foreach (array_values(array_unique(array_map('intval', $ids))) as $id) {
+                $c = self::q($db, 'SELECT produit, codes FROM catalog_corbeille WHERE product_id = ?', [$id]);
+                if (!$c || self::q($db, 'SELECT id FROM catalog_product WHERE id = ?', [$id])) {
+                    $absents[] = $id;
+                    continue;
+                }
+                $p = json_decode($c[0]['produit'], true);
+                if ($colonnes) {
+                    $p = array_intersect_key($p, array_flip($colonnes));
+                }
+                $db->prepare('INSERT INTO catalog_product (' . implode(', ', array_keys($p)) . ') VALUES ('
+                    . implode(', ', array_fill(0, count($p), '?')) . ')')->execute(array_values($p));
+                $code = $db->prepare('INSERT INTO catalog_product_barcode (product_id, barcode, is_primary, source_id) VALUES (?, ?, ?, ?)');
+                foreach (json_decode($c[0]['codes'], true) as $b) {
+                    $code->execute([$id, $b['barcode'], $b['is_primary'], $b['source_id']]);
+                }
+                $db->prepare('DELETE FROM catalog_corbeille WHERE product_id = ?')->execute([$id]);
+                $restaures[] = $id;
+            }
+            $db->commit();
+        } catch (Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+        return ['restaures' => $restaures, 'absents' => $absents];
     }
 }
