@@ -20,6 +20,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from import_boutique import AGENT, appel, config, ean_valide, lire, lots  # noqa: E402
@@ -137,18 +138,25 @@ def main():
         if not (f.get('photo') and f.get('marque')):
             a_chercher += [c for c in p['codes'] if c not in etat['of']]
     sans_reponse = 0
-    for n, code in enumerate(a_chercher, 1):
-        p = next(x for x in produits if code in x['codes'])
+    produit_de = {c: p for p in produits for c in p['codes']}
+
+    def chercher(code):
+        p = produit_de[code]
         if any(etat['of'].get(c) and etat['of'][c].get('image') and etat['of'][c].get('marque') for c in p['codes']):
-            continue  # un autre code du produit a déjà tout donné
-        r = open_facts(code, SOURCES if code == p['codes'][0] else SOURCES[:1])  # un autre code : Food seul
-        if r is False:
-            sans_reponse += 1
-        else:
-            etat['of'][code] = r
-            garder()
-        trouves = sum(1 for v in etat['of'].values() if v)
-        print(f'2. Open Facts : {n}/{len(a_chercher)} codes, {trouves} fiches trouvées, {sans_reponse} sans réponse', end='\r')
+            return None, True  # un autre code du produit a déjà tout donné
+        return open_facts(code, SOURCES if code == p['codes'][0] else SOURCES[:1]), False  # un autre code : Food seul
+
+    with ThreadPoolExecutor(2) as ex:  # 2 fils : sous les 100 lectures par minute d'Open Food Facts
+        for n, (code, (r, passe)) in enumerate(zip(a_chercher, ex.map(chercher, a_chercher)), 1):
+            if passe:
+                continue
+            if r is False:
+                sans_reponse += 1
+            else:
+                etat['of'][code] = r
+                garder()
+            trouves = sum(1 for v in etat['of'].values() if v)
+            print(f'2. Open Facts : {n}/{len(a_chercher)} codes, {trouves} fiches trouvées, {sans_reponse} sans réponse', end='\r')
     print()
 
     # 3. Les photos et le fichier final
