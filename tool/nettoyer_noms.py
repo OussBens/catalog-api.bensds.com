@@ -237,6 +237,8 @@ def main():
     a.add_argument('--sortie', required=True, help='dossier des pages lues, du plan et de l\'état')
     a.add_argument('--appliquer', action='store_true', help='modifier le catalogue (sinon : plan seul)')
     a.add_argument('--relire', action='store_true', help='relire tout le catalogue')
+    a.add_argument('--garder-generiques', action='store_true', help='laisser les produits au nom seulement générique')
+    a.add_argument('--sans-recherche', action='store_true', help='ne pas chercher les noms perdus (laissés pour plus tard)')
     o = a.parse_args()
     global CFG
     CFG = cfg = config()
@@ -254,7 +256,8 @@ def main():
     juges = [(p, defauts(p['nom'], (p['code_produit'] or '').strip(), generiques)) for p in produits]
     juges = [(p, d) for p, d in juges if d]
 
-    perdus = [p['code_produit'] for p, d in juges if d == ['texte perdu'] and p['code_produit'] not in etat['trouves']]
+    perdus = [] if o.sans_recherche else [p['code_produit'] for p, d in juges
+                                          if d == ['texte perdu'] and p['code_produit'] not in etat['trouves']]
     with ThreadPoolExecutor(3) as ex:  # Open Facts : 100 lectures de produit par minute au plus
         for i, (code, nom) in enumerate(zip(perdus, ex.map(nom_public, perdus)), 1):
             if nom is not False:
@@ -266,6 +269,7 @@ def main():
         print()
     pas_cherches = sum(1 for p, d in juges if d == ['texte perdu'] and p['code_produit'] not in etat['trouves'])
 
+    a_supprimer = A_SUPPRIMER - {'nom générique'} if o.garder_generiques else A_SUPPRIMER
     plan, laisses = [], collections.Counter()
     for p, d in juges:
         code = p['code_produit']
@@ -275,8 +279,8 @@ def main():
         if d == ['texte perdu']:
             nom = etat['trouves'][code]
             action = ('renommer', nom, 'texte perdu, retrouvé') if nom else ('supprimer', None, 'texte perdu, introuvable')
-        elif set(d) & A_SUPPRIMER:
-            action = ('supprimer', None, ', '.join(x for x in d if x in A_SUPPRIMER))
+        elif set(d) & a_supprimer:
+            action = ('supprimer', None, ', '.join(x for x in d if x in a_supprimer))
         elif d == ['espaces en double']:
             action = ('renommer', re.sub(r'\s+', ' ', p['nom']).strip(), 'espaces en double')
         else:
