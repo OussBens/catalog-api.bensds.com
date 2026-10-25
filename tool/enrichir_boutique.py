@@ -11,7 +11,7 @@ trouver une photo et une marque.
 Le CSV (séparateur « ; ») : « Code-barres », « Autres codes-barres » (séparés par « | »), « Nom du produit »,
 « Quantité (contenance) » ou « Quantité ». Sortie : <nom>_enrichi.csv (Code-barres ; Autres codes-barres ; Nom du
 produit ; Marque ; Quantité ; Couleur ; Photo ; Source photo ; Id catalogue ; Catégorie Open Facts), les photos dans <nom>_photos/<code>.jpg,
-et l'état (<nom>_enrichi_etat.json) pour reprendre après une coupure : relancer la même commande.
+et l'état (<nom>_recherche.json) pour reprendre après une coupure : relancer la même commande.
 """
 import argparse
 import csv
@@ -93,8 +93,10 @@ def main():
     sortie = lambda s: os.path.join(o.sortie, f'{nom}_{s}')
     dossier_photos = sortie('photos')
     os.makedirs(dossier_photos, exist_ok=True)
-    etat_chemin = sortie('enrichi_etat.json')
-    etat = json.load(open(etat_chemin, encoding='utf-8')) if os.path.exists(etat_chemin) else {}
+    etat_chemin = sortie('recherche.json')  # pas <nom>_enrichi_etat.json : c'est l'état de l'import de <nom>_enrichi.csv
+    if not os.path.exists(etat_chemin) and os.path.exists(sortie('enrichi_etat.json')):
+        os.replace(sortie('enrichi_etat.json'), etat_chemin)
+    etat =json.load(open(etat_chemin, encoding='utf-8')) if os.path.exists(etat_chemin) else {}
     etat.setdefault('catalogue', None)
     etat.setdefault('fiches', {})   # id catalogue → {marque, taille, photo}
     etat.setdefault('of', {})       # code → fiche Open Facts ou None
