@@ -43,7 +43,7 @@ $db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_
 $db->exec('CREATE TABLE catalog_category (id INTEGER PRIMARY KEY, nom TEXT, parent_id INTEGER)');
 $db->exec('CREATE TABLE catalog_brand (id INTEGER PRIMARY KEY, nom TEXT)');
 $db->exec('CREATE TABLE catalog_product (id INTEGER PRIMARY KEY, code_produit TEXT, nom TEXT, brand_id INTEGER,
-           category_id INTEGER, photo TEXT, source_id INTEGER)');
+           category_id INTEGER, taille TEXT, couleur TEXT, photo TEXT, source_id INTEGER)');
 $db->exec('CREATE TABLE catalog_product_barcode (id INTEGER PRIMARY KEY, product_id INTEGER, barcode TEXT,
            is_primary INTEGER, source_id INTEGER)');
 RayonsSchema::installer($db);

@@ -1,13 +1,14 @@
 <?php
 /**
  * Ce que les boutiques apprennent au catalogue (POST /tendance → produits) : chaque poste CaisseDZ Desktop
- * envoie les fiches qu'il a saisies (code-barres, nom, nom arabe, marque, catégorie, autres codes-barres).
+ * envoie les fiches qu'il a saisies (code-barres, nom, nom arabe, marque, catégorie, autres codes-barres) ; l'import
+ * d'une boutique (Admin::importer) y ajoute la quantité (colonne taille : « 500 g ») et la couleur.
  *
  *   code-barres inconnu  → le produit est créé tout de suite (source CaisseDZ, contribue_par = le poste),
  *                          rangé dans son rayon (porc / alcool exclus comme les autres), « à confirmer » par les
  *                          autres boutiques (Confirmations.php) avant d'être proposé dans les rayons ;
- *   code-barres connu    → seuls les champs vides sont complétés (nom, nom arabe, marque, catégorie, codes-barres
- *                          supplémentaires) ; une valeur déjà présente n'est jamais remplacée.
+ *   code-barres connu    → seuls les champs vides sont complétés (nom, nom arabe, marque, catégorie, quantité,
+ *                          couleur, codes-barres supplémentaires) ; une valeur déjà présente n'est jamais remplacée.
  * Chaque création ou complément est noté dans catalog_contribution (poste, champs) : le tableau de bord BENS
  * montre ce que chaque client apporte, l'administration peut corriger.
  */
@@ -17,6 +18,8 @@ class Contributions
     const MARQUE_MAX = 120;
     const CATEGORIE_MAX = 200;
     const CODES_MAX = 10;
+    const TAILLE_MAX = 50;
+    const COULEUR_MAX = 50;
 
     /** Un code-barres EAN / UPC (les codes internes d'une boutique ne disent rien aux autres). */
     public static function codeValide($code)
@@ -71,6 +74,8 @@ class Contributions
             'nom_ar' => $nomAr !== null && Tendance::estArabe($nomAr) ? $nomAr : null,
             'marque' => self::texte($x['marque'] ?? null, self::MARQUE_MAX),
             'categorie' => self::texte($x['categorie'] ?? null, self::CATEGORIE_MAX),
+            'taille' => self::texte($x['taille'] ?? null, self::TAILLE_MAX),
+            'couleur' => self::texte($x['couleur'] ?? null, self::COULEUR_MAX),
         ];
     }
 
@@ -145,10 +150,10 @@ class Contributions
     {
         $marque = $f['marque'] === null ? null : self::idParNom($db, 'catalog_brand', $f['marque']);
         $categorie = $f['categorie'] === null ? null : self::idParNom($db, 'catalog_category', $f['categorie']);
-        $db->prepare('INSERT INTO catalog_product (code_produit, nom, nom_ar, nom_ar_poste, brand_id, category_id, source_id, contribue_par,
-                      a_confirmer, confirmation) VALUES (?, ?, ?, ?, ?, ?, 1, ?, 1, ?)')
-           ->execute([$f['codes'][0], $f['nom'], $f['nom_ar'], $f['nom_ar'] === null ? null : $poste, $marque, $categorie, $poste,
-                      Confirmations::depart()]);
+        $db->prepare('INSERT INTO catalog_product (code_produit, nom, nom_ar, nom_ar_poste, brand_id, category_id, taille, couleur,
+                      source_id, contribue_par, a_confirmer, confirmation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1, ?)')
+           ->execute([$f['codes'][0], $f['nom'], $f['nom_ar'], $f['nom_ar'] === null ? null : $poste, $marque, $categorie,
+                      $f['taille'] ?? null, $f['couleur'] ?? null, $poste, Confirmations::depart()]);
         $id = (int)$db->lastInsertId();
         $code = $db->prepare('INSERT INTO catalog_product_barcode (product_id, barcode, is_primary, source_id) VALUES (?, ?, ?, 1)');
         foreach ($f['codes'] as $i => $c) {
@@ -157,7 +162,8 @@ class Contributions
         self::ranger($db, $id, $f['nom'], (string)$f['categorie'], null, $f['codes'], $rayons);
         self::noter($db, $id, $poste, 'cree', array_keys(array_filter([
             'nom' => true, 'nom_ar' => $f['nom_ar'] !== null, 'marque' => $marque !== null,
-            'categorie' => $categorie !== null, 'codes_barres' => count($f['codes']) > 1,
+            'categorie' => $categorie !== null, 'taille' => ($f['taille'] ?? null) !== null,
+            'couleur' => ($f['couleur'] ?? null) !== null, 'codes_barres' => count($f['codes']) > 1,
         ])));
         return $id;
     }
@@ -165,7 +171,8 @@ class Contributions
     /** Complète les champs vides du produit [id] ; vrai si quelque chose a changé. */
     private static function completer(PDO $db, $poste, $id, array $f, array &$ids, array &$rayons = null)
     {
-        $s = $db->prepare("SELECT p.nom, p.nom_ar, p.brand_id, p.category_id, p.photo, p.rayon_code, COALESCE(c.nom, '') AS categorie
+        $s = $db->prepare("SELECT p.nom, p.nom_ar, p.brand_id, p.category_id, p.taille, p.couleur, p.photo, p.rayon_code,
+                                  COALESCE(c.nom, '') AS categorie
                            FROM catalog_product p LEFT JOIN catalog_category c ON c.id = p.category_id WHERE p.id = ?");
         $s->execute([$id]);
         $p = $s->fetch(PDO::FETCH_ASSOC);
@@ -192,6 +199,12 @@ class Contributions
         if ($sansCategorie && $f['categorie'] !== null) {
             $maj['category_id'] = self::idParNom($db, 'catalog_category', $f['categorie']);
             $champs[] = 'categorie';
+        }
+        foreach (['taille', 'couleur'] as $champ) {
+            if (trim((string)$p[$champ]) === '' && ($f[$champ] ?? null) !== null) {
+                $maj[$champ] = $f[$champ];
+                $champs[] = $champ;
+            }
         }
         $code = $db->prepare('INSERT INTO catalog_product_barcode (product_id, barcode, is_primary, source_id) VALUES (?, ?, 0, 1)');
         $ajoutes = 0;

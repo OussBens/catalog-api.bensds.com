@@ -307,14 +307,16 @@ class Admin
     }
 
     /**
-     * Les produits [produits] d'une boutique ({code_barres, nom}) : un code-barres absent du catalogue devient un
-     * produit confirmé (créé par `ADMIN`, porc / alcool exclus) ; un produit déjà là n'est pas modifié. Tous ont leur
-     * tendance imposée à 1. Renvoie {crees: [{code_barres, id}], tendances, ignores}.
+     * Les produits [produits] d'une boutique ({code_barres, nom} ; facultatifs : codes_barres (les autres codes du
+     * produit), nom_ar, marque, categorie, taille (la quantité : « 500 g »), couleur). Un produit dont aucun code-barres
+     * n'est au catalogue devient un produit confirmé (créé par `ADMIN`, porc / alcool exclus) ; un produit déjà là
+     * garde ce qu'il a, seuls ses champs vides et ses codes-barres manquants sont complétés. Tous ont leur tendance
+     * imposée à 1, sauf [tendance] faux. Renvoie {crees: [{code_barres, id}], completes, tendances, ignores}.
      * [rayons] (codes, facultatif) : les rayons de la boutique. Un produit créé que son nom range ailleurs (ou nulle
      * part : « TENT ANDREA BN ») va dans le premier ; il reçoit pour catégorie le nom de son rayon, que le tri lit
      * avant le nom (Rayons::classer) : un reclassement le laisse où il est.
      */
-    public static function importer(PDO $db, $produits, $rayons = null)
+    public static function importer(PDO $db, $produits, $rayons = null, $tendance = true)
     {
         $categories = [];
         if ($rayons !== null) {
@@ -329,33 +331,46 @@ class Admin
         $fiches = [];
         $ignores = [];
         foreach (self::lot($produits, 'produits') as $x) {
-            $f = Contributions::lire(is_array($x) ? ['code_barres' => trim((string)($x['code_barres'] ?? '')), 'nom' => $x['nom'] ?? null] : null);
+            $brut = null;
+            if (is_array($x)) {
+                $brut = array_intersect_key($x, array_flip(['codes_barres', 'nom', 'nom_ar', 'marque', 'categorie', 'taille', 'couleur']));
+                $brut['code_barres'] = trim((string)($x['code_barres'] ?? ''));
+                $brut['codes_barres'] = array_map(function ($c) { return is_scalar($c) ? trim((string)$c) : ''; },
+                    is_array($brut['codes_barres'] ?? null) ? $brut['codes_barres'] : []);
+            }
+            $f = Contributions::lire($brut);
             if ($f === null) {
                 $ignores[] = is_array($x) ? (string)($x['code_barres'] ?? '') : '';
                 continue;
             }
             // Indexé par « c » + code : une clé PHP faite de chiffres deviendrait un entier.
-            $fiches['c' . $f['codes'][0]] = $f;
+            $fiches['c' . $f['codes'][0]] = ['fiche' => $f, 'brut' => $brut];
         }
-        $codes = array_map(function ($f) { return $f['codes'][0]; }, array_values($fiches));
+        $codes = [];
+        foreach ($fiches as $x) {
+            $codes = array_merge($codes, $x['fiche']['codes']);
+        }
         $ids = Tendance::produitsParCodeBarres($db, $codes);
         $nouveaux = [];
-        foreach ($fiches as $f) {
-            $code = $f['codes'][0];
-            if (!isset($ids[$code])) {
-                if ($f['nom'] === null) {
-                    $ignores[] = $code;
-                    continue;
-                }
-                $n = ['code_barres' => $code, 'nom' => $f['nom']];
-                if ($categories) {
-                    $rayon = Rayons::classer($f['nom'], '', $actifs);
-                    $n['categorie'] = $categories[isset($categories[$rayon]) ? $rayon : array_key_first($categories)];
-                }
-                $nouveaux[] = $n;
+        $existants = [];
+        foreach ($fiches as $x) {
+            $f = $x['fiche'];
+            if (array_intersect($f['codes'], array_map('strval', array_keys($ids)))) {
+                $existants[] = $x['brut'];
+                continue;
             }
+            if ($f['nom'] === null) {
+                $ignores[] = $f['codes'][0];
+                continue;
+            }
+            $n = $x['brut'];
+            if ($categories) {
+                $rayon = Rayons::classer($f['nom'], '', $actifs);
+                $n['categorie'] = $categories[isset($categories[$rayon]) ? $rayon : array_key_first($categories)];
+            }
+            $nouveaux[] = $n;
         }
-        Contributions::appliquer($db, 'ADMIN', $nouveaux);
+        $completes = Contributions::appliquer($db, 'ADMIN', array_merge($nouveaux, $existants))['completes'];
         $ids = Tendance::produitsParCodeBarres($db, $codes);
         $crees = [];
         $db->beginTransaction();
@@ -372,11 +387,12 @@ class Admin
             throw $e;
         }
         $tous = array_values(array_unique(array_values($ids)));
-        if ($tous) {
+        if ($tous && $tendance) {
             $db->exec('UPDATE catalog_product SET tendance_forcee = 1 WHERE id IN (' . implode(',', array_map('intval', $tous)) . ')');
             Tendance::recalculer($db, $tous);
         }
-        return ['crees' => $crees, 'tendances' => count($tous), 'ignores' => array_values(array_unique(array_map('strval', $ignores)))];
+        return ['crees' => $crees, 'completes' => $completes, 'tendances' => $tendance ? count($tous) : 0,
+                'ignores' => array_values(array_unique(array_map('strval', $ignores)))];
     }
 
     /** Les produits {id, ancien, …} de [liste] (LOT_NETTOYAGE au plus), indexés par id, avec leur ligne actuelle. */

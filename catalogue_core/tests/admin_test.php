@@ -31,7 +31,7 @@ $db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_
 $db->exec('CREATE TABLE catalog_category (id INTEGER PRIMARY KEY, nom TEXT, parent_id INTEGER)');
 $db->exec('CREATE TABLE catalog_brand (id INTEGER PRIMARY KEY, nom TEXT)');
 $db->exec('CREATE TABLE catalog_product (id INTEGER PRIMARY KEY AUTOINCREMENT, code_produit TEXT, nom TEXT, brand_id INTEGER,
-           category_id INTEGER, photo TEXT, source_id INTEGER)');
+           category_id INTEGER, taille TEXT, couleur TEXT, photo TEXT, source_id INTEGER)');
 $db->exec('CREATE TABLE catalog_product_barcode (id INTEGER PRIMARY KEY, product_id INTEGER, barcode TEXT,
            is_primary INTEGER, source_id INTEGER)');
 check('installer : à jour', Admin::installer($db) === ['a_jour' => true]);
@@ -170,6 +170,29 @@ check('importer avec rayons : le reclassement les laisse', $rayonDe('61300000000
     && $rayonDe('6130000000048') === 'cosmetiques' && $rayonDe('6130000000055') === 'hygiene');
 check('importer : rayon inconnu → 404', erreur(function () use ($db) { Admin::importer($db, [], ['inconnu']); }) === 404);
 check('importer : rien de neuf au second passage', Admin::importer($db, [['code_barres' => '6130000000017', 'nom' => 'Vernis']])['crees'] === []);
+$imp = Admin::importer($db, [
+    ['code_barres' => '6130000000062', 'codes_barres' => ['6130000000079', '0123', ' 6130000000086 '], 'nom' => 'عجائن قاريدو 500 غ',
+     'nom_ar' => 'عجائن قاريدو 500 غ', 'marque' => 'Garrido', 'taille' => '500 g', 'couleur' => ' ', 'categorie' => 'Spaghetti'],
+    ['code_barres' => '6130000000093', 'codes_barres' => ['6130000000017'], 'nom' => 'Vernis rose', 'marque' => 'Flormar',
+     'taille' => '10 ml', 'couleur' => 'rose'],
+], null, false);
+$pates = $db->query("SELECT p.*, b.nom AS marque FROM catalog_product p LEFT JOIN catalog_brand b ON b.id = p.brand_id
+                     WHERE code_produit = '6130000000062'")->fetch(PDO::FETCH_ASSOC);
+$codesDe = function ($id) use ($db) {
+    return $db->query("SELECT barcode FROM catalog_product_barcode WHERE product_id = $id ORDER BY is_primary DESC, barcode")->fetchAll(PDO::FETCH_COLUMN);
+};
+check('importer : créé avec marque, quantité, ses 3 codes-barres valables', count($imp['crees']) === 1 && $pates['marque'] === 'Garrido'
+    && $pates['taille'] === '500 g' && $pates['couleur'] === null && $pates['nom_ar'] === 'عجائن قاريدو 500 غ'
+    && $codesDe($pates['id']) === ['6130000000062', '6130000000079', '6130000000086']);
+$vernis = $db->query("SELECT p.*, b.nom AS marque FROM catalog_product p LEFT JOIN catalog_brand b ON b.id = p.brand_id
+                      WHERE code_produit = '6130000000017'")->fetch(PDO::FETCH_ASSOC);
+check('importer : existant sous un autre code → complété (marque, quantité, couleur, code), nom gardé', $imp['completes'] === 1
+    && $vernis['nom'] === 'Vernis à ongles Rose' && $vernis['marque'] === 'Flormar' && $vernis['taille'] === '10 ml'
+    && $vernis['couleur'] === 'rose' && in_array('6130000000093', $codesDe($vernis['id']), true));
+check('importer sans tendance : rien imposé', $imp['tendances'] === 0 && $pates['tendance_forcee'] === null);
+check('importer : un champ rempli n\'est pas remplacé', Admin::importer($db, [['code_barres' => '6130000000062', 'nom' => 'x',
+    'taille' => '1 kg']], null, false)['completes'] === 0
+    && $db->query("SELECT taille FROM catalog_product WHERE code_produit = '6130000000062'")->fetchColumn() === '500 g');
 
 // ---- Nettoyage des noms : renommer, supprimer (corbeille), restaurer ------------------------------------
 $ins = $db->prepare('INSERT INTO catalog_product (code_produit, nom, category_id, photo) VALUES (?, ?, 1, ?)');

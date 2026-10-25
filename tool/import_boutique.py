@@ -3,18 +3,22 @@
     python tool/import_boutique.py anes.csv                # comparaison seule : rien n'est modifié
     python tool/import_boutique.py anes.csv --appliquer    # tout le processus
     python tool/import_boutique.py anes.csv --appliquer --revoir-photos   # et la photo des créés restés sans
+    python tool/import_boutique.py bouzid_enrichi.csv --appliquer --rayons "" --sans-tendance   # un fichier enrichi
 
 Le processus (--appliquer) :
   1. plus aucune tendance dans les rayons --rayons (cosmétiques, hygiène, parapharmacie) : POST /admin/sans-tendance ;
-  2. chaque produit de la boutique : absent → créé (confirmé, rangé dans son rayon), déjà là → pas modifié ;
-     tous mis en tendance : POST /admin/importer ; un produit créé que son nom range hors de ces rayons (ou nulle
-     part) va dans le premier (cosmétiques) ;
+     --rayons "" : étape passée, et chaque produit créé est rangé d'après son nom et sa catégorie ;
+  2. chaque produit de la boutique : absent → créé (confirmé, rangé dans son rayon), déjà là → seuls ses champs vides
+     et ses codes-barres manquants sont complétés ; tous mis en tendance (sauf --sans-tendance) : POST /admin/importer ;
+     un produit créé que son nom range hors de ces rayons (ou nulle part) va dans le premier (cosmétiques) ;
   3. une photo pour chaque produit créé, prise sur Open Beauty Facts / Open Food Facts (licence CC BY-SA)
-     d'après son code-barres : POST /products/{id}/photo.
+     d'après son code-barres : POST /products/{id}/photo. Avec une colonne « Photo » (tool/enrichir_boutique.py) :
+     le fichier de --photos, envoyé aussi aux produits déjà là qui n'ont pas de photo, sans chercher ailleurs.
 
-Le CSV : séparateur « ; », colonnes « Code-barres » et « Nom du produit » (l'export du logiciel de la boutique).
-Seuls les codes-barres EAN / UPC (clé de contrôle juste) sont envoyés : les codes internes d'une boutique
-(« 09660 », « RAZOR »…) ne disent rien aux autres. Les prix et les stocks ne quittent pas le PC.
+Le CSV : séparateur « ; », colonnes « Code-barres » et « Nom du produit » (l'export du logiciel de la boutique) ;
+facultatives : « Autres codes-barres » (séparés par « | »), « Marque », « Quantité », « Couleur », « Photo »,
+« Catégorie Open Facts ». Seuls les codes-barres EAN / UPC (clé de contrôle juste) sont envoyés : les codes internes
+d'une boutique (« 09660 », « RAZOR »…) ne disent rien aux autres. Les prix et les stocks ne quittent pas le PC.
 
 Configuration : API_URL, REV_SERVER_TOKEN (routes /admin) et API_KEY (photos), lus dans l'environnement, sinon
 dans le .env de ce dossier. Les rapports (comparaison, créés, sans photo) et l'état (photos déjà envoyées, pour
@@ -33,6 +37,7 @@ import uuid
 
 ICI = os.path.dirname(os.path.abspath(__file__))
 LOT = 300  # Admin::LOT_BOUTIQUE
+OCTETS_MAX = 60000  # le corps d'une requête /admin : 64 Ko au plus
 AGENT = 'CaisseDZ-Catalogue/1.0 (catalog-api.bensds.com)'
 SOURCES_PHOTO = ['https://world.openbeautyfacts.org', 'https://world.openfoodfacts.org']
 
@@ -62,22 +67,47 @@ def ean_valide(code):
 
 
 def lire_csv(chemin):
+    """Les produits du CSV : {code_barres, nom} et, si le CSV les a, codes_barres, nom_ar, marque, taille, couleur,
+    categorie, photo (le nom de fichier, pas envoyé). Le premier code EAN / UPC valable sert de code principal."""
     produits, internes, vus = [], 0, set()
     with open(chemin, encoding='utf-8-sig', newline='') as f:
         for ligne in csv.DictReader(f, delimiter=';'):
-            code = (ligne.get('Code-barres') or '').strip()
-            nom = re.sub(r'\s+', ' ', (ligne.get('Nom du produit') or '')).strip()[:200]
-            if not ean_valide(code):
+            val = lambda k, n=200: re.sub(r'\s+', ' ', ligne.get(k) or '').strip()[:n]
+            codes = [c.strip() for c in [ligne.get('Code-barres') or ''] + (ligne.get('Autres codes-barres') or '').split('|')]
+            codes = [c for c in dict.fromkeys(codes) if ean_valide(c) and c not in vus][:10]  # Contributions::CODES_MAX
+            nom = val('Nom du produit')
+            if not codes:
                 internes += 1
-            elif code not in vus and nom:
-                vus.add(code)
-                produits.append({'code_barres': code, 'nom': nom})
+                continue
+            if not nom:
+                continue
+            vus.update(codes)
+            p = {'code_barres': codes[0], 'nom': nom}
+            extras = {'codes_barres': codes[1:], 'nom_ar': nom if re.search('[ء-ي]', nom) else '',
+                      'marque': val('Marque', 120), 'taille': val('Quantité', 50), 'couleur': val('Couleur', 50),
+                      'categorie': val('Catégorie Open Facts') or val('Catégorie'), 'photo': val('Photo')}
+            p.update({k: v for k, v in extras.items() if v})
+            produits.append(p)
     return produits, internes
+
+
+def paquets(produits):
+    """Les produits en lots de LOT au plus et de moins de OCTETS_MAX une fois en JSON."""
+    lot, taille = [], 0
+    for p in produits:
+        t = len(json.dumps(p, ensure_ascii=False).encode('utf-8')) + 2
+        if lot and (len(lot) >= LOT or taille + t > OCTETS_MAX):
+            yield lot
+            lot, taille = [], 0
+        lot.append(p)
+        taille += t
+    if lot:
+        yield lot
 
 
 def appel(cfg, methode, route, corps=None):
     requete = urllib.request.Request(cfg['url'] + route, method=methode,
-                                     data=None if corps is None else json.dumps(corps).encode('utf-8'),
+                                     data=None if corps is None else json.dumps(corps, ensure_ascii=False).encode('utf-8'),
                                      headers={'X-Server-Token': cfg['jeton'], 'Content-Type': 'application/json',
                                               'User-Agent': AGENT})
     for essai in range(5):  # les routes /admin peuvent être rejouées : un produit déjà créé n'est pas recréé
@@ -173,13 +203,37 @@ def envoyer_photo(cfg, produit_id, octets, genre):
             time.sleep(30 * (essai + 1))
 
 
+def photo_locale(cfg, o, produits, etat, garder):
+    """3. (--photos) La photo de la colonne « Photo » pour chaque produit, créé ou déjà là, qui n'en a pas encore."""
+    genres = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp'}
+    locales = {p['code_barres']: os.path.join(o.photos, p['photo']) for p in produits
+               if p.get('photo') and os.path.exists(os.path.join(o.photos, p['photo']))}
+    existants, _ = comparer(cfg, [{'code_barres': c} for c in locales])
+    a_faire, vus = [], set()
+    for e in existants:
+        if not e['photo'] and e['code_barres'] not in etat['photos'] and e['id'] not in vus:
+            vus.add(e['id'])
+            a_faire.append((e['code_barres'], e['id']))
+    for n, (code, produit_id) in enumerate(a_faire, 1):
+        chemin = locales[code]
+        with open(chemin, 'rb') as f:
+            etat['photos'][code] = envoyer_photo(cfg, produit_id, f.read(),
+                                                 genres.get(os.path.splitext(chemin)[1].lower(), 'image/jpeg'))
+        garder()
+        print(f'3. Photos {n}/{len(a_faire)} : {sum(etat["photos"].values())} envoyées', end='\r')
+    print()
+
+
 def main():
     for flux in (sys.stdout, sys.stderr):
         flux.reconfigure(encoding='utf-8', errors='replace')  # console Windows (cp1256…)
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     a.add_argument('csv')
     a.add_argument('--appliquer', action='store_true', help='modifier le catalogue (sinon : comparaison seule)')
-    a.add_argument('--rayons', default='cosmetiques,hygiene,parapharmacie', help='rayons remis sans tendance avant l\'import')
+    a.add_argument('--rayons', default='cosmetiques,hygiene,parapharmacie',
+                   help='rayons remis sans tendance avant l\'import ("" : aucun, les produits rangés d\'après leur nom)')
+    a.add_argument('--sans-tendance', action='store_true', help='ne pas mettre les produits de la boutique en tendance')
+    a.add_argument('--photos', help='dossier des photos de la colonne « Photo » (sinon : Open Facts, pour les créés)')
     a.add_argument('--sortie', default='.', help='dossier des rapports et de l\'état')
     a.add_argument('--revoir-photos', action='store_true', help='chercher de nouveau la photo des produits créés sans')
     o = a.parse_args()
@@ -209,7 +263,9 @@ def main():
     garder = lambda: json.dump(etat, open(etat_chemin, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 
     rayons = [x.strip() for x in o.rayons.split(',') if x.strip()]
-    if not etat.get('sans_tendance'):
+    if not rayons:
+        print('1. Aucun rayon à remettre sans tendance (--rayons ""), étape passée')
+    elif not etat.get('sans_tendance'):
         r = appel(cfg, 'POST', '/admin/sans-tendance', {'rayons': rayons})
         print(f'1. Plus de tendance dans {", ".join(r["rayons"])} : {r["produits"]} produits')
         etat['sans_tendance'] = r
@@ -217,15 +273,31 @@ def main():
     else:
         print('1. Rayons déjà remis sans tendance (état), étape passée')
 
-    tendances = 0
-    for i, lot in lots(produits):
-        r = appel(cfg, 'POST', '/admin/importer', {'produits': lot, 'rayons': rayons})
+    tendances, completes, faits = 0, 0, 0
+    for lot in paquets([{k: v for k, v in p.items() if k != 'photo'} for p in produits]):
+        corps = {'produits': lot, 'tendance': not o.sans_tendance}
+        if rayons:
+            corps['rayons'] = rayons
+        r = appel(cfg, 'POST', '/admin/importer', corps)
         for c in r['crees']:
             etat['crees'][c['code_barres']] = c['id']
         tendances += r['tendances']
+        completes += r.get('completes', 0)
+        faits += len(lot)
         garder()
-        print(f'2. Importés {min(i + LOT, len(produits))}/{len(produits)} : {len(etat["crees"])} créés, {tendances} en tendance', end='\r')
+        print(f'2. Importés {faits}/{len(produits)} : {len(etat["crees"])} créés, {completes} complétés, '
+              f'{tendances} en tendance', end='\r')
     print()
+
+    if o.photos:
+        photo_locale(cfg, o, produits, etat, garder)
+        ecrire(sortie('crees.csv'), ['Code-barres', 'Nom', 'Id catalogue', 'Photo'],
+               [[c, next((p['nom'] for p in produits if p['code_barres'] == c), ''), i,
+                 'oui' if etat['photos'].get(c) else 'non'] for c, i in etat['crees'].items()])
+        print(f'Terminé : {len(etat["crees"])} créés, {completes} complétés, {tendances} en tendance, '
+              f'{sum(etat["photos"].values())} photos envoyées')
+        print(f'Rapport : {sortie("crees.csv")}')
+        return
 
     noms = {p['code_barres']: p['nom'] for p in produits}
     revus = set(etat.setdefault('revus', []))  # --revoir-photos : déjà cherchés de nouveau, pas à refaire

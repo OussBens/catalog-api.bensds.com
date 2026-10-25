@@ -158,7 +158,7 @@ function adminRoute(PDO $db, $method, $a, $b, $c)
             break;
         case 'POST importer':
             $corps = adminCorps();
-            $donnees = Admin::importer($db, $corps['produits'] ?? null, $corps['rayons'] ?? null);
+            $donnees = Admin::importer($db, $corps['produits'] ?? null, $corps['rayons'] ?? null, ($corps['tendance'] ?? true) !== false);
             break;
         case 'POST nettoyer':
             $corps = adminCorps();
