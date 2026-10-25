@@ -133,8 +133,15 @@ def lire_page(dossier, n, relire):
 
 def lire_catalogue(dossier, relire):
     os.makedirs(dossier, exist_ok=True)
-    with urllib.request.urlopen(urllib.request.Request(f'{CFG["url"]}/products?page=1', headers={'User-Agent': AGENT}), timeout=90) as r:
-        pages = json.load(r)['data']['total_pages']
+    for essai in range(5):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(f'{CFG["url"]}/products?page=1', headers={'User-Agent': AGENT}), timeout=90) as r:
+                pages = json.load(r)['data']['total_pages']
+            break
+        except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError):
+            if essai == 4:
+                raise
+            time.sleep(30 * (essai + 1))
     with ThreadPoolExecutor(4) as ex:
         for i, _ in enumerate(ex.map(lambda n: lire_page(dossier, n, relire), range(1, pages + 1)), 1):
             print(f'1. Catalogue lu : {i}/{pages} pages', end='\r')

@@ -80,11 +80,16 @@ def appel(cfg, methode, route, corps=None):
                                      data=None if corps is None else json.dumps(corps).encode('utf-8'),
                                      headers={'X-Server-Token': cfg['jeton'], 'Content-Type': 'application/json',
                                               'User-Agent': AGENT})
-    try:
-        with urllib.request.urlopen(requete, timeout=180) as r:
-            return json.load(r)['data']
-    except urllib.error.HTTPError as e:
-        sys.exit(f'{methode} {route} : HTTP {e.code} {e.read().decode("utf-8", "replace")[:300]}')
+    for essai in range(5):  # les routes /admin peuvent être rejouées : un produit déjà créé n'est pas recréé
+        try:
+            with urllib.request.urlopen(requete, timeout=180) as r:
+                return json.load(r)['data']
+        except urllib.error.HTTPError as e:
+            sys.exit(f'{methode} {route} : HTTP {e.code} {e.read().decode("utf-8", "replace")[:300]}')
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if essai == 4:
+                raise
+            time.sleep(30 * (essai + 1))
 
 
 def lots(liste):
