@@ -2,6 +2,7 @@
 
     python tool/import_boutique.py anes.csv                # comparaison seule : rien n'est modifié
     python tool/import_boutique.py anes.csv --appliquer    # tout le processus
+    python tool/import_boutique.py anes.csv --appliquer --revoir-photos   # et la photo des créés restés sans
 
 Le processus (--appliquer) :
   1. plus aucune tendance dans les rayons --rayons (cosmétiques, hygiène, parapharmacie) : POST /admin/sans-tendance ;
@@ -109,23 +110,41 @@ def comparer(cfg, produits):
     return existants, absents
 
 
-def photo_publique(code):
-    """L'image de face du produit sur Open Beauty / Food Facts : (octets, type) ou None."""
-    for base in SOURCES_PHOTO:
+def lire(lien, timeout):
+    """GET [lien] : (octets, type), None si la ressource n'existe pas (404), False si le serveur ne répond pas ou
+    refuse pour l'instant (429 : trop de lectures, 5xx, délai dépassé) après 4 essais."""
+    for essai in range(4):
         try:
-            req = urllib.request.Request(f'{base}/api/v2/product/{code}.json?fields=image_front_url,image_url',
-                                         headers={'User-Agent': AGENT})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                d = json.load(r)
-            lien = (d.get('product') or {}).get('image_front_url') or (d.get('product') or {}).get('image_url')
-            if d.get('status') == 1 and lien:
-                with urllib.request.urlopen(urllib.request.Request(lien, headers={'User-Agent': AGENT}), timeout=60) as r:
-                    octets, genre = r.read(), r.headers.get_content_type()
-                if genre in ('image/jpeg', 'image/png', 'image/webp') and len(octets) <= 5 * 1024 * 1024:
-                    return octets, genre
-        except (urllib.error.URLError, TimeoutError, ValueError):
+            with urllib.request.urlopen(urllib.request.Request(lien, headers={'User-Agent': AGENT}), timeout=timeout) as r:
+                return r.read(), r.headers.get_content_type()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
             pass
+        time.sleep(15 * (essai + 1))
+    return False
+
+
+def photo_publique(code):
+    """L'image de face du produit sur Open Beauty / Food Facts : (octets, type), None s'il n'y en a pas, False si
+    une source n'a pas répondu (le produit est cherché de nouveau au prochain lancement)."""
+    for base in SOURCES_PHOTO:
+        r = lire(f'{base}/api/v2/product/{code}.json?fields=image_front_url,image_url', 30)
         time.sleep(0.7)  # Open Food Facts : 100 lectures par minute au plus
+        if r is False:
+            return False
+        try:
+            d = json.loads(r[0]) if r else {}
+        except ValueError:
+            return False
+        lien = (d.get('product') or {}).get('image_front_url') or (d.get('product') or {}).get('image_url')
+        if d.get('status') == 1 and lien:
+            image = lire(lien, 60)
+            if image is False:
+                return False
+            if image and image[1] in ('image/jpeg', 'image/png', 'image/webp') and len(image[0]) <= 5 * 1024 * 1024:
+                return image
     return None
 
 
@@ -157,6 +176,7 @@ def main():
     a.add_argument('--appliquer', action='store_true', help='modifier le catalogue (sinon : comparaison seule)')
     a.add_argument('--rayons', default='cosmetiques,hygiene,parapharmacie', help='rayons remis sans tendance avant l\'import')
     a.add_argument('--sortie', default='.', help='dossier des rapports et de l\'état')
+    a.add_argument('--revoir-photos', action='store_true', help='chercher de nouveau la photo des produits créés sans')
     o = a.parse_args()
     cfg = config()
     if not cfg['jeton'] or (o.appliquer and not cfg['cle']):
@@ -203,13 +223,20 @@ def main():
     print()
 
     noms = {p['code_barres']: p['nom'] for p in produits}
-    a_faire = [(c, i) for c, i in etat['crees'].items() if c not in etat['photos']]
+    a_faire = [(c, i) for c, i in etat['crees'].items()
+               if c not in etat['photos'] or (o.revoir_photos and not etat['photos'][c])]
+    plus_tard = 0
     for n, (code, produit_id) in enumerate(a_faire, 1):
         image = photo_publique(code)
-        etat['photos'][code] = bool(image) and envoyer_photo(cfg, produit_id, *image)
-        garder()
-        print(f'3. Photos {n}/{len(a_faire)} : {sum(etat["photos"].values())} trouvées', end='\r')
+        if image is False:
+            plus_tard += 1
+        else:
+            etat['photos'][code] = bool(image) and envoyer_photo(cfg, produit_id, *image)
+            garder()
+        print(f'3. Photos {n}/{len(a_faire)} : {sum(etat["photos"].values())} trouvées, {plus_tard} sans réponse', end='\r')
     print()
+    if plus_tard:
+        print(f'{plus_tard} produits sans réponse d\'Open Facts : relancer la même commande pour les chercher de nouveau')
 
     ecrire(sortie('crees.csv'), ['Code-barres', 'Nom', 'Id catalogue', 'Photo'],
            [[c, noms.get(c, ''), i, 'oui' if etat['photos'].get(c) else 'non'] for c, i in etat['crees'].items()])
