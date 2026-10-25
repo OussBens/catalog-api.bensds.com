@@ -228,8 +228,9 @@ def main():
     print()
 
     noms = {p['code_barres']: p['nom'] for p in produits}
+    revus = set(etat.setdefault('revus', []))  # --revoir-photos : déjà cherchés de nouveau, pas à refaire
     a_faire = [(c, i) for c, i in etat['crees'].items()
-               if c not in etat['photos'] or (o.revoir_photos and not etat['photos'][c])]
+               if c not in etat['photos'] or (o.revoir_photos and not etat['photos'][c] and c not in revus)]
     plus_tard = 0
     for n, (code, produit_id) in enumerate(a_faire, 1):
         image = photo_publique(code)
@@ -237,6 +238,8 @@ def main():
             plus_tard += 1
         else:
             etat['photos'][code] = bool(image) and envoyer_photo(cfg, produit_id, *image)
+            if o.revoir_photos:
+                etat['revus'].append(code)
             garder()
         print(f'3. Photos {n}/{len(a_faire)} : {sum(etat["photos"].values())} trouvées, {plus_tard} sans réponse', end='\r')
     print()
