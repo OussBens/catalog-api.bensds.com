@@ -21,6 +21,9 @@ class Rayons
     const PLAFOND = 5000;
     const LOT_PAGE_MAX = 500;
 
+    /** Nouveautés du marché envoyées aux boutiques par jour de confirmation (alerte « Nouveautés du marché »). */
+    const NOUVEAUTES_PAR_JOUR = 5;
+
     /**
      * Rayons créés à l'installation (modifiables ensuite dans admin_rayons.php). Mots-clés : mot entier,
      * sauf `*` final (début de mot : « biscuit* » trouve « biscuiterie ») ; un mot arabe est cherché partout
@@ -347,7 +350,8 @@ class Rayons
      * [depuis] (AAAA-MM-JJ) : seulement ceux devenus tendance depuis ce jour, ou nouveaux sur le marché depuis ce
      * jour (mise à jour d'un poste qui a déjà téléchargé le rayon). Nouveau sur le marché : apporté par une boutique
      * CaisseDZ (code-barres jusque-là inconnu du catalogue) puis confirmé par les autres ; `nouveau_le` : le jour de
-     * sa confirmation (alerte « Nouveautés du marché » de CaisseDZ Desktop). Lance une exception 404 si le rayon
+     * sa confirmation (alerte « Nouveautés du marché » de CaisseDZ Desktop), donné seulement aux nouveautés retenues
+     * (au plus NOUVEAUTES_PAR_JOUR par jour, voir [nouveautesRetenues]). Lance une exception 404 si le rayon
      * n'existe pas.
      */
     public static function produits(PDO $db, $code, $page = 1, $limite = self::LOT_PAGE_MAX, $depuis = null)
@@ -362,11 +366,14 @@ class Rayons
         // Un produit apporté par une boutique n'est proposé qu'une fois confirmé (Confirmations.php).
         $filtre = 'p.rayon_code = ? AND p.exclu = 0 AND p.a_confirmer = 0';
         $params = [$code];
+        $retenues = self::nouveautesRetenues($db);
         if ($depuis !== null) {
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$depuis)) {
                 throw new Exception('depuis : AAAA-MM-JJ', 400);
             }
-            $filtre .= ' AND ((p.tendance = 1 AND p.tendance_le >= ?) OR (p.contribue_par IS NOT NULL AND p.confirme_le >= ?))';
+            // Nouveautés : seulement celles retenues pour leur jour (NOUVEAUTES_PAR_JOUR, tous rayons confondus).
+            $nouvelles = $retenues ? 'p.id IN (' . implode(',', array_keys($retenues)) . ')' : '0 = 1';
+            $filtre .= " AND ((p.tendance = 1 AND p.tendance_le >= ?) OR ($nouvelles AND p.confirme_le >= ?))";
             $params[] = $depuis;
             $params[] = $depuis;
         }
@@ -403,7 +410,7 @@ class Rayons
                     'nom' => $p['nom'],
                     'nom_ar' => $p['nom_ar'] ?: null,
                     'tendance' => (int)$p['tendance'] === 1,
-                    'nouveau_le' => $p['contribue_par'] !== null && $p['confirme_le'] ? substr((string)$p['confirme_le'], 0, 10) : null,
+                    'nouveau_le' => isset($retenues[(int)$p['id']]) ? substr((string)$p['confirme_le'], 0, 10) : null,
                     'marque' => $p['marque'],
                     'photo' => $p['photo'] ?: null,
                 ];
@@ -417,6 +424,30 @@ class Rayons
             'total_pages' => (int)ceil($total / $limite),
             'products' => $produits,
         ];
+    }
+
+    /**
+     * Nouveautés du marché envoyées aux boutiques : pour chaque jour de confirmation, les NOUVEAUTES_PAR_JOUR
+     * produits apportés par les boutiques les mieux classés (score), tous rayons actifs confondus. Les autres
+     * produits confirmés ce jour-là restent dans leur rayon, sans `nouveau_le` (pas d'alerte). Renvoie [id => true].
+     */
+    public static function nouveautesRetenues(PDO $db)
+    {
+        $lignes = $db->query('
+            SELECT p.id, p.confirme_le FROM catalog_product p
+            WHERE p.contribue_par IS NOT NULL AND p.confirme_le IS NOT NULL AND p.exclu = 0 AND p.a_confirmer = 0
+              AND p.rayon_code IN (SELECT code FROM catalog_rayon WHERE actif = 1)
+            ORDER BY p.score DESC, p.id DESC')->fetchAll(PDO::FETCH_ASSOC);
+        $parJour = [];
+        $retenues = [];
+        foreach ($lignes as $l) {
+            $jour = substr((string)$l['confirme_le'], 0, 10);
+            if (($parJour[$jour] ?? 0) < self::NOUVEAUTES_PAR_JOUR) {
+                $parJour[$jour] = ($parJour[$jour] ?? 0) + 1;
+                $retenues[(int)$l['id']] = true;
+            }
+        }
+        return $retenues;
     }
 
     /** Une recherche par code-barres : le produit monte dans le classement de son rayon. */
