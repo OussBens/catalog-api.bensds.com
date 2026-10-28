@@ -269,6 +269,27 @@ check('confirmé : nouveau sur le marché depuis aujourd\'hui', $nouveautes['tot
     && $nouveautes['products'][0]['tendance'] === false);
 check('nouveautés depuis demain : rien', Rayons::produits($db, 'epicerie', 1, 500, date('Y-m-d', strtotime('+1 day')))['total'] === 0);
 check('produit du catalogue d\'origine : pas une nouveauté', Rayons::produits($db, 'boissons')['products'][0]['nouveau_le'] === null);
+
+// Au plus 5 nouveautés par jour (tous rayons) : les mieux classées ; les autres restent au rayon sans `nouveau_le`.
+$maintenant = date('Y-m-d H:i:s');
+$insNouveau = $db->prepare("INSERT INTO catalog_product (id, code_produit, nom, rayon_code, score, contribue_par, a_confirmer, confirme_le)
+                            VALUES (?, ?, ?, 'epicerie', ?, 'CD-AAAA-AAAA', 0, ?)");
+for ($i = 1; $i <= 6; $i++) {
+    $insNouveau->execute([900 + $i, '61399990000' . $i, "Nouveauté $i", 10000 + $i, $maintenant]);
+}
+$depuisAujourdhui = Rayons::produits($db, 'epicerie', 1, 500, $aujourdhui)['products'];
+$nouveauxEnvoyes = array_filter($depuisAujourdhui, function ($p) { return $p['nouveau_le'] !== null; });
+check('5 nouveautés par jour envoyées', count($nouveauxEnvoyes) === Rayons::NOUVEAUTES_PAR_JOUR);
+check('les 5 mieux classées', array_column(array_values($nouveauxEnvoyes), 'nom')
+    === ['Nouveauté 6', 'Nouveauté 5', 'Nouveauté 4', 'Nouveauté 3', 'Nouveauté 2']);
+check('au-delà : pas envoyée en mise à jour', !in_array('Couscous Mama 1kg', array_column($depuisAujourdhui, 'nom'), true)
+    && !in_array('Nouveauté 1', array_column($depuisAujourdhui, 'nom'), true));
+$rayonComplet = array_column(Rayons::produits($db, 'epicerie')['products'], 'nouveau_le', 'nom');
+check('au-delà : reste au rayon, sans nouveau_le', array_key_exists('Nouveauté 1', $rayonComplet)
+    && $rayonComplet['Nouveauté 1'] === null && $rayonComplet['Nouveauté 6'] === $aujourdhui);
+$db->exec('DELETE FROM catalog_product WHERE id BETWEEN 901 AND 906');
+check('place libérée : le couscous redevient une nouveauté',
+    Rayons::produits($db, 'epicerie', 1, 500, $aujourdhui)['products'][0]['nouveau_le'] === $aujourdhui);
 check('confirmé : plus de vote', $vote('CD-EEEE-EEEE', $couscous, -1)['votes'] === 0 && (int)parCode($db, $couscous)['confirmation'] === 5);
 
 // Jambon (à confirmer, 2) : deux « ce n'est pas ça » → 0 → supprimé, avec ses codes-barres et ses votes.
