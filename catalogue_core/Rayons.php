@@ -433,11 +433,19 @@ class Rayons
      */
     public static function nouveautesRetenues(PDO $db)
     {
-        $lignes = $db->query('
+        // Les rayons actifs passés en paramètres : comparer catalog_product.rayon_code à catalog_rayon.code dans
+        // la requête échoue sur MySQL (« Illegal mix of collations », les deux tables n'ont pas la même collation).
+        $actifs = $db->query('SELECT code FROM catalog_rayon WHERE actif = 1')->fetchAll(PDO::FETCH_COLUMN);
+        if (!$actifs) {
+            return [];
+        }
+        $stmt = $db->prepare('
             SELECT p.id, p.confirme_le FROM catalog_product p
             WHERE p.contribue_par IS NOT NULL AND p.confirme_le IS NOT NULL AND p.exclu = 0 AND p.a_confirmer = 0
-              AND p.rayon_code IN (SELECT code FROM catalog_rayon WHERE actif = 1)
-            ORDER BY p.score DESC, p.id DESC')->fetchAll(PDO::FETCH_ASSOC);
+              AND p.rayon_code IN (' . implode(',', array_fill(0, count($actifs), '?')) . ')
+            ORDER BY p.score DESC, p.id DESC');
+        $stmt->execute($actifs);
+        $lignes = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $parJour = [];
         $retenues = [];
         foreach ($lignes as $l) {
