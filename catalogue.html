@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catalogue CaisseDZ</title>
+<style>
+:root{
+  --bg:#f5f6fa; --surface:#fff; --surface-2:#f0f2f8; --border:#e3e6ef; --text:#171a26; --muted:#6a7189;
+  --primary:#4f46e5; --primary-ink:#fff; --primary-soft:#eceafd; --hot:#ea580c; --hot-soft:#ffedd5;
+  --new:#059669; --new-soft:#d1fae5; --danger:#dc2626; --shadow:0 1px 2px rgba(20,24,40,.06),0 4px 14px rgba(20,24,40,.06);
+  --radius:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f111a; --surface:#181b27; --surface-2:#212536; --border:#2a2f44; --text:#eceef7; --muted:#9aa1ba;
+    --primary:#818cf8; --primary-ink:#0f111a; --primary-soft:#262a4d; --hot:#fb923c; --hot-soft:#3a2312;
+    --new:#34d399; --new-soft:#10312a; --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f111a; --surface:#181b27; --surface-2:#212536; --border:#2a2f44; --text:#eceef7; --muted:#9aa1ba;
+  --primary:#818cf8; --primary-ink:#0f111a; --primary-soft:#262a4d; --hot:#fb923c; --hot-soft:#3a2312;
+  --new:#34d399; --new-soft:#10312a; --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 14px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Cairo,sans-serif}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.ar{font-family:Cairo,"Segoe UI",Tahoma,sans-serif}
+
+/* En-tête */
+header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.top-in{max-width:1400px;margin:0 auto;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;white-space:nowrap}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--primary);color:var(--primary-ink);display:grid;place-items:center;font-weight:800}
+.search{flex:1 1 320px;position:relative;min-width:220px}
+.search input{width:100%;height:44px;border-radius:12px;border:1px solid var(--border);background:var(--surface);padding:0 40px 0 42px;outline:none;box-shadow:var(--shadow)}
+.search input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.search .ico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.search .clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:var(--surface-2);width:28px;height:28px;border-radius:8px;color:var(--muted);display:none}
+.search.has .clear{display:block}
+.icon-btn{height:44px;min-width:44px;border-radius:12px;border:1px solid var(--border);background:var(--surface);padding:0 12px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.icon-btn:hover{border-color:var(--primary)}
+
+/* Mise en page */
+.wrap{max-width:1400px;margin:0 auto;padding:16px;display:grid;grid-template-columns:270px 1fr;gap:20px}
+aside.filters{position:sticky;top:84px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+aside h3{margin:0 0 8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.group{margin-bottom:18px}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:10px;padding:3px;gap:3px}
+.seg button{border:0;background:none;padding:7px;border-radius:8px;font-weight:600;color:var(--muted)}
+.seg button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+.rayons{display:flex;flex-direction:column;gap:2px}
+.rayon{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 10px;border-radius:9px;border:0;background:none;text-align:left}
+.rayon:hover{background:var(--surface-2)}
+.rayon.on{background:var(--primary-soft);color:var(--primary);font-weight:600}
+.rayon .n{font-size:12px;color:var(--muted)}
+.rayon.on .n{color:var(--primary)}
+select,.field{width:100%;height:38px;border-radius:10px;border:1px solid var(--border);background:var(--surface);padding:0 10px;outline:none}
+select:focus,.field:focus{border-color:var(--primary)}
+.check{display:flex;align-items:center;gap:10px;padding:6px 2px;cursor:pointer;user-select:none}
+.check input{width:18px;height:18px;accent-color:var(--primary)}
+.link{border:0;background:none;color:var(--primary);padding:0;font-weight:600}
+
+/* Barre de résultats */
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.bar .count{font-weight:700;font-size:16px}
+.bar .sub{color:var(--muted);font-size:13px}
+.spacer{flex:1}
+.bar select{width:auto;min-width:170px}
+.views{display:flex;background:var(--surface-2);border-radius:10px;padding:3px;gap:2px}
+.views button{border:0;background:none;height:34px;width:38px;border-radius:8px;color:var(--muted)}
+.views button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.chip{background:var(--primary-soft);color:var(--primary);border-radius:999px;padding:4px 6px 4px 12px;font-size:13px;display:inline-flex;gap:6px;align-items:center;font-weight:600}
+.chip button{border:0;background:rgba(0,0,0,.08);width:20px;height:20px;border-radius:50%;line-height:1;color:inherit}
+
+.progress{height:4px;background:var(--surface-2);border-radius:4px;overflow:hidden;margin-bottom:12px;display:none}
+.progress.on{display:block}
+.progress i{display:block;height:100%;width:0;background:var(--primary);transition:width .2s}
+
+/* Grille */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);cursor:pointer;display:flex;flex-direction:column;transition:transform .12s,border-color .12s;text-align:left;padding:0}
+.card:hover{transform:translateY(-2px);border-color:var(--primary)}
+.ph{aspect-ratio:1/1;background:var(--surface-2);position:relative;display:grid;place-items:center;color:var(--muted)}
+.ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff}
+.ph svg{width:42px;height:42px;opacity:.5}
+.badges{position:absolute;top:8px;left:8px;display:flex;gap:4px;flex-direction:column;align-items:flex-start}
+.badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--hot-soft);color:var(--hot)}
+.badge.new{background:var(--new-soft);color:var(--new)}
+.badge.conf{background:#fef9c3;color:#a16207}
+.body{padding:12px;display:flex;flex-direction:column;gap:3px;flex:1}
+.name{font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.name-ar{color:var(--muted);direction:rtl;text-align:right;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{margin-top:auto;padding-top:8px;display:flex;justify-content:space-between;gap:6px;font-size:12.5px;color:var(--muted)}
+.meta .mq{color:var(--primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+/* Liste / tableau */
+.table{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:auto;box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;min-width:760px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--border);vertical-align:middle}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--surface-2);position:sticky;top:0;white-space:nowrap}
+tr.row{cursor:pointer}
+tr.row:hover td{background:var(--surface-2)}
+td .thumb{width:44px;height:44px;border-radius:8px;object-fit:contain;background:#fff;border:1px solid var(--border);display:block}
+td .thumb.empty{background:var(--surface-2)}
+td.ar{direction:rtl;text-align:right}
+
+/* Pagination */
+.pager{display:flex;justify-content:center;align-items:center;gap:6px;margin:22px 0 8px;flex-wrap:wrap}
+.pager button{min-width:38px;height:38px;border-radius:10px;border:1px solid var(--border);background:var(--surface);padding:0 10px}
+.pager button.on{background:var(--primary);color:var(--primary-ink);border-color:var(--primary);font-weight:700}
+.pager button:disabled{opacity:.4;cursor:default}
+
+/* États */
+.state{text-align:center;padding:60px 20px;color:var(--muted)}
+.state b{display:block;color:var(--text);font-size:17px;margin-bottom:6px}
+.skel{background:linear-gradient(90deg,var(--surface-2),var(--surface),var(--surface-2));background-size:200% 100%;animation:sh 1.2s infinite;border-radius:var(--radius);aspect-ratio:3/4}
+@keyframes sh{to{background-position:-200% 0}}
+
+/* Détail */
+dialog{border:0;border-radius:18px;padding:0;max-width:760px;width:calc(100% - 24px);background:var(--surface);color:var(--text);box-shadow:0 24px 70px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(10,12,22,.55);backdrop-filter:blur(3px)}
+.dlg{display:grid;grid-template-columns:260px 1fr;gap:20px;padding:22px;position:relative}
+.dlg .ph{border-radius:12px;overflow:hidden;border:1px solid var(--border)}
+.dlg h2{margin:0 0 4px;font-size:20px;line-height:1.25}
+.dlg .x{position:absolute;top:10px;right:10px;border:0;background:var(--surface-2);width:34px;height:34px;border-radius:10px;font-size:18px}
+dl{display:grid;grid-template-columns:110px 1fr;gap:8px 12px;margin:14px 0 0}
+dt{color:var(--muted)}
+dd{margin:0;word-break:break-word}
+.bc{display:flex;flex-wrap:wrap;gap:6px}
+.bc button{border:1px solid var(--border);background:var(--surface-2);border-radius:8px;padding:3px 9px}
+.bc button:hover{border-color:var(--primary)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg);padding:10px 16px;border-radius:12px;opacity:0;transition:.2s;pointer-events:none;z-index:50}
+.toast.on{opacity:1;transform:translateX(-50%)}
+
+.only-mobile{display:none}
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr}
+  aside.filters{display:none;position:fixed;inset:0;z-index:40;max-height:none;border-radius:0;top:0}
+  aside.filters.open{display:block}
+  .only-mobile{display:inline-flex}
+  .dlg{grid-template-columns:1fr}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand"><span class="logo">C</span><span>Catalogue CaisseDZ</span></div>
+    <label class="search" id="searchBox">
+      <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="q" type="search" placeholder="Nom, nom arabe, marque ou code-barres…" autocomplete="off" autofocus>
+      <button class="clear" id="qClear" type="button" aria-label="Effacer">✕</button>
+    </label>
+    <button class="icon-btn only-mobile" id="openFilters">Filtres</button>
+    <button class="icon-btn" id="exportBtn" title="Exporter les résultats en CSV">⬇ CSV</button>
+    <button class="icon-btn" id="themeBtn" title="Thème clair / sombre">🌓</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <aside class="filters" id="filters">
+    <div class="group only-mobile"><button class="icon-btn" id="closeFilters" style="width:100%">Fermer</button></div>
+
+    <div class="group">
+      <h3>Source</h3>
+      <div class="seg">
+        <button id="modeRayons" class="on">Par rayon</button>
+        <button id="modeAll">Tout le catalogue</button>
+      </div>
+    </div>
+
+    <div id="rayonBlock">
+      <div class="group">
+        <h3>Rayons</h3>
+        <div class="rayons" id="rayons"></div>
+      </div>
+
+      <div class="group">
+        <h3>Marque</h3>
+        <select id="brand"><option value="">Toutes les marques</option></select>
+      </div>
+
+      <div class="group">
+        <h3>Afficher seulement</h3>
+        <label class="check"><input type="checkbox" id="fTrend"> 🔥 Tendance</label>
+        <label class="check"><input type="checkbox" id="fPhoto"> Avec photo</label>
+        <label class="check"><input type="checkbox" id="fAr"> Avec nom arabe</label>
+        <label class="check"><input type="checkbox" id="fMulti"> Plusieurs codes-barres</label>
+        <label class="check"><input type="checkbox" id="fNew"> Nouveautés</label>
+      </div>
+    </div>
+
+    <div id="allBlock" style="display:none">
+      <div class="group">
+        <p class="sub" style="color:var(--muted);font-size:13px;margin:0">
+          Parcourt <b>tous</b> les produits du serveur, du plus récent au plus ancien, 50 par page.<br><br>
+          La recherche par code-barres exact (8 chiffres ou plus) interroge directement le serveur.
+          Les autres filtres sont disponibles dans le mode « Par rayon ».
+        </p>
+      </div>
+    </div>
+
+    <button class="link" id="reset">Réinitialiser les filtres</button>
+  </aside>
+
+  <main>
+    <div class="progress" id="progress"><i></i></div>
+    <div class="bar">
+      <div>
+        <div class="count" id="count">Chargement…</div>
+        <div class="sub" id="sub"></div>
+      </div>
+      <div class="spacer"></div>
+      <select id="sort" aria-label="Tri">
+        <option value="rank">Meilleurs classés d’abord</option>
+        <option value="az">Nom A → Z</option>
+        <option value="za">Nom Z → A</option>
+        <option value="brand">Marque A → Z</option>
+        <option value="recent">Plus récents</option>
+      </select>
+      <div class="views">
+        <button data-view="grid" class="on" title="Grille">▦</button>
+        <button data-view="list" title="Liste">☰</button>
+      </div>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div id="results"></div>
+    <div class="pager" id="pager"></div>
+  </main>
+</div>
+
+<dialog id="dlg"></dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- Configuration ---------- */
+const API = /(^|\.)bensds\.com$/.test(location.hostname) ? location.origin : 'https://catalog-api.bensds.com';
+const PAGE = 48;          // produits affichés par page (mode rayon)
+const LOT = 500;          // maximum accepté par /rayons/{code}/products
+const PARALLEL = 4;       // requêtes simultanées
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => Number(n).toLocaleString('fr-FR');
+const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ًͯ-ٰٟ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').trim();
+const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
+const PLACEHOLDER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.7"/><path d="m21 15-5-5L5 21"/></svg>';
+
+/* ---------- État ---------- */
+const S = {
+  mode: 'rayons',              // 'rayons' | 'all'
+  rayonsList: [],              // [{code,nom_fr,...,produits}]
+  selected: new Set(),         // codes de rayon sélectionnés
+  loaded: new Map(),           // code -> Promise/[]  (produits déjà chargés)
+  items: [],                   // produits des rayons sélectionnés (dédoublonnés)
+  q: '', brand: '', sort: 'rank', view: 'grid', page: 1,
+  f: {trend:false, photo:false, ar:false, multi:false, nw:false},
+  filtered: [],
+  all: {page:1, total:0, pages:1, items:[], barcode:null, loading:false},
+  token: 0
+};
+
+try { S.view = localStorage.getItem('cat.view') || 'grid'; } catch(e) {}
+
+/* ---------- Réseau ---------- */
+async function api(path) {
+  const r = await fetch(API + path, {headers:{Accept:'application/json'}});
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  if (j.success === false) throw new Error(j.error || 'Erreur serveur');
+  return j.data;
+}
+
+function setProgress(done, total) {
+  const p = $('#progress');
+  if (!total || done >= total) { p.classList.remove('on'); return; }
+  p.classList.add('on');
+  $('i', p).style.width = (done / total * 100) + '%';
+}
+
+/* Charge toutes les pages d'un rayon (500 produits par requête) */
+function loadRayon(code, onPage) {
+  if (S.loaded.has(code)) return S.loaded.get(code);
+  const job = (async () => {
+    const first = await api(`/rayons/${encodeURIComponent(code)}/products?page=1&limit=${LOT}`);
+    let out = first.products.map(p => ({...p, rayon: code}));
+    onPage && onPage(1, first.total_pages);
+    const rest = [];
+    for (let p = 2; p <= first.total_pages; p++) rest.push(p);
+    let done = 1;
+    const results = {};
+    const workers = Array.from({length: Math.min(PARALLEL, rest.length)}, async () => {
+      while (rest.length) {
+        const p = rest.shift();
+        const d = await api(`/rayons/${encodeURIComponent(code)}/products?page=${p}&limit=${LOT}`);
+        results[p] = d.products.map(x => ({...x, rayon: code}));
+        onPage && onPage(++done, first.total_pages);
+      }
+    });
+    await Promise.all(workers);
+    Object.keys(results).map(Number).sort((a, b) => a - b).forEach(p => out = out.concat(results[p]));
+    out.forEach((p, i) => p._rank = i);
+    return out;
+  })();
+  S.loaded.set(code, job);
+  job.catch(() => S.loaded.delete(code));
+  return job;
+}
+
+/* ---------- Rayons ---------- */
+async function init() {
+  document.body.dataset.v = S.view;
+  try {
+    const d = await api('/rayons');
+    S.rayonsList = d.rayons;
+    renderRayons();
+    // Par défaut : le premier rayon qui a des produits
+    const first = S.rayonsList.find(r => r.produits > 0);
+    if (first) { S.selected.add(first.code); renderRayons(); }
+    await refreshData();
+  } catch (e) { fail(e); }
+}
+
+function renderRayons() {
+  const total = S.rayonsList.reduce((a, r) => a + r.produits, 0);
+  const allOn = S.selected.size === S.rayonsList.length && S.rayonsList.length > 0;
+  $('#rayons').innerHTML =
+    `<button class="rayon ${allOn ? 'on' : ''}" data-r="*"><span>Tous les rayons</span><span class="n">${fmt(total)}</span></button>` +
+    S.rayonsList.map(r => `<button class="rayon ${S.selected.has(r.code) ? 'on' : ''}" data-r="${esc(r.code)}">
+      <span>${esc(r.nom_fr)}</span><span class="n">${fmt(r.produits)}</span></button>`).join('');
+}
+
+$('#rayons').addEventListener('click', e => {
+  const b = e.target.closest('[data-r]'); if (!b) return;
+  const c = b.dataset.r;
+  if (c === '*') {
+    if (S.selected.size === S.rayonsList.length) S.selected.clear();
+    else S.rayonsList.forEach(r => S.selected.add(r.code));
+  } else {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      S.selected.has(c) ? S.selected.delete(c) : S.selected.add(c);
+    } else if (S.selected.size === 1 && S.selected.has(c)) {
+      S.selected.clear();
+    } else { S.selected = new Set([c]); }
+  }
+  S.brand = ''; S.page = 1;
+  renderRayons(); refreshData();
+});
+
+async function refreshData() {
+  const my = ++S.token;
+  const codes = [...S.selected];
+  if (!codes.length) { S.items = []; rebuildBrands(); apply(); return; }
+  const pending = codes.filter(c => !S.loaded.has(c) || S.loaded.get(c) instanceof Promise);
+  let expected = 0, got = 0;
+  const per = {};
+  const upd = (c) => (page, pages) => {
+    per[c] = [page, pages];
+    got = Object.values(per).reduce((a, v) => a + v[0], 0);
+    expected = Object.values(per).reduce((a, v) => a + v[1], 0);
+    setProgress(got, expected);
+  };
+  showSkeleton();
+  try {
+    const lists = await Promise.all(codes.map(c => loadRayon(c, upd(c))));
+    if (my !== S.token) return;
+    setProgress(1, 1);
+    const seen = new Set(); const out = [];
+    for (const l of lists) for (const p of l) if (!seen.has(p.id)) { seen.add(p.id); out.push(p); }
+    S.items = out;
+    rebuildBrands();
+    apply();
+  } catch (e) { if (my === S.token) { setProgress(1, 1); fail(e); } }
+}
+
+function rebuildBrands() {
+  const m = new Map();
+  S.items.forEach(p => { if (p.marque) m.set(p.marque, (m.get(p.marque) || 0) + 1); });
+  const arr = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'fr', {sensitivity:'base'}));
+  $('#brand').innerHTML = '<option value="">Toutes les marques (' + fmt(arr.length) + ')</option>' +
+    arr.map(([n, c]) => `<option value="${esc(n)}">${esc(n)} (${c})</option>`).join('');
+  $('#brand').value = S.brand;
+}
+
+/* ---------- Filtrage / tri (mode rayon) ---------- */
+function apply() {
+  if (S.mode !== 'rayons') return;
+  const terms = norm(S.q).split(/\s+/).filter(Boolean);
+  const f = S.f;
+  let list = S.items.filter(p => {
+    if (S.brand && p.marque !== S.brand) return false;
+    if (f.trend && !p.tendance) return false;
+    if (f.photo && !p.photo) return false;
+    if (f.ar && !p.nom_ar) return false;
+    if (f.multi && !(p.codes_barres && p.codes_barres.length > 1)) return false;
+    if (f.nw && !p.nouveau_le) return false;
+    if (terms.length) {
+      if (!p._h) p._h = norm([p.nom, p.nom_ar, p.marque, p.code_barres, (p.codes_barres || []).join(' ')].join(' '));
+      for (const t of terms) if (!p._h.includes(t)) return false;
+    }
+    return true;
+  });
+  const cmp = {
+    rank: (a, b) => (a._rank - b._rank),
+    az: (a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr', {sensitivity:'base'}),
+    za: (a, b) => (b.nom || '').localeCompare(a.nom || '', 'fr', {sensitivity:'base'}),
+    brand: (a, b) => (a.marque || '￿').localeCompare(b.marque || '￿', 'fr', {sensitivity:'base'}),
+    recent: (a, b) => b.id - a.id
+  }[S.sort];
+  if (S.sort === 'rank' && S.selected.size > 1) {
+    // rayons multiples : on garde l'ordre par rang puis par rayon
+    list.sort((a, b) => a._rank - b._rank || a.rayon.localeCompare(b.rayon));
+  } else list.sort(cmp);
+  S.filtered = list;
+  const pages = Math.max(1, Math.ceil(list.length / PAGE));
+  if (S.page > pages) S.page = pages;
+  render();
+}
+
+/* ---------- Rendu ---------- */
+function card(p) {
+  const src = safeUrl(p.photo);
+  const ph = PLACEHOLDER + (src ? `<img loading="lazy" src="${esc(src)}" alt="" onerror="this.remove()">` : '');
+  const badges = (p.tendance ? '<span class="badge">🔥 Tendance</span>' : '') + (p.nouveau_le ? '<span class="badge new">Nouveau</span>' : '') + (p.a_confirmer ? '<span class="badge conf">À confirmer</span>' : '');
+  return `<button class="card" data-id="${p.id}">
+    <div class="ph">${ph}<div class="badges">${badges}</div></div>
+    <div class="body">
+      <div class="name">${esc(p.nom || '(sans nom)')}</div>
+      ${p.nom_ar ? `<div class="name-ar ar">${esc(p.nom_ar)}</div>` : ''}
+      <div class="meta"><span class="mq">${esc(p.marque || '')}</span><span class="code">${esc(p.code_barres || '')}</span></div>
+    </div></button>`;
+}
+
+function row(p) {
+  const src = safeUrl(p.photo);
+  return `<tr class="row" data-id="${p.id}">
+    <td>${src ? `<img class="thumb" loading="lazy" src="${esc(src)}" alt="" onerror="this.className='thumb empty';this.removeAttribute('src')">` : '<span class="thumb empty"></span>'}</td>
+    <td><b>${esc(p.nom || '(sans nom)')}</b><div class="sub" style="color:var(--muted);font-size:12px">${p.tendance ? '🔥 Tendance ' : ''}${p.nouveau_le ? '· Nouveau' : ''}</div></td>
+    <td class="ar">${esc(p.nom_ar || '')}</td>
+    <td>${esc(p.marque || '')}</td>
+    <td class="code">${esc(p.code_barres || '')}</td>
+    <td>${esc(rayonName(p.rayon))}</td></tr>`;
+}
+
+function rayonName(c) { const r = S.rayonsList.find(x => x.code === c); return r ? r.nom_fr : (c || ''); }
+
+function listHtml(items) {
+  if (S.view === 'list') {
+    return `<div class="table"><table><thead><tr><th></th><th>Produit</th><th>Nom arabe</th><th>Marque</th><th>Code-barres</th><th>Rayon</th></tr></thead><tbody>${items.map(row).join('')}</tbody></table></div>`;
+  }
+  return `<div class="grid">${items.map(card).join('')}</div>`;
+}
+
+function render() {
+  document.querySelectorAll('.views button').forEach(b => b.classList.toggle('on', b.dataset.view === S.view));
+  if (S.mode === 'all') return renderAll();
+  const total = S.filtered.length;
+  const start = (S.page - 1) * PAGE;
+  const slice = S.filtered.slice(start, start + PAGE);
+  $('#count').textContent = fmt(total) + (total > 1 ? ' produits' : ' produit');
+  $('#sub').textContent = S.items.length ? `sur ${fmt(S.items.length)} dans ${S.selected.size > 1 ? S.selected.size + ' rayons' : '« ' + rayonName([...S.selected][0]) + ' »'}` : '';
+  $('#results').innerHTML = !S.selected.size
+    ? '<div class="state"><b>Choisissez un rayon</b>Sélectionnez un rayon à gauche pour afficher ses produits.</div>'
+    : total ? listHtml(slice)
+    : '<div class="state"><b>Aucun produit trouvé</b>Essayez un autre mot, ou retirez des filtres.</div>';
+  pager(Math.ceil(total / PAGE), S.page, p => { S.page = p; render(); scrollTo({top:0}); });
+  chips();
+}
+
+function pager(pages, cur, go) {
+  const el = $('#pager');
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  const set = new Set([1, pages, cur, cur - 1, cur + 1, cur - 2, cur + 2].filter(n => n >= 1 && n <= pages));
+  const nums = [...set].sort((a, b) => a - b);
+  let h = `<button data-p="${cur - 1}" ${cur === 1 ? 'disabled' : ''}>‹</button>`;
+  let prev = 0;
+  nums.forEach(n => { if (n - prev > 1) h += '<span>…</span>'; h += `<button data-p="${n}" class="${n === cur ? 'on' : ''}">${n}</button>`; prev = n; });
+  h += `<button data-p="${cur + 1}" ${cur === pages ? 'disabled' : ''}>›</button>`;
+  el.innerHTML = h;
+  el.onclick = e => { const b = e.target.closest('[data-p]'); if (b && !b.disabled) go(+b.dataset.p); };
+}
+
+function chips() {
+  const c = [];
+  const add = (label, fn) => c.push([label, fn]);
+  if (S.q) add('« ' + S.q + ' »', () => { S.q = ''; $('#q').value = ''; $('#searchBox').classList.remove('has'); });
+  if (S.brand) add('Marque : ' + S.brand, () => { S.brand = ''; $('#brand').value = ''; });
+  const names = {trend:'Tendance', photo:'Avec photo', ar:'Nom arabe', multi:'Plusieurs codes', nw:'Nouveautés'};
+  Object.keys(names).forEach(k => S.f[k] && add(names[k], () => { S.f[k] = false; syncChecks(); }));
+  chips.fns = c.map(x => x[1]);
+  $('#chips').innerHTML = c.map((x, i) => `<span class="chip">${esc(x[0])}<button data-i="${i}" aria-label="Retirer">✕</button></span>`).join('');
+}
+$('#chips').addEventListener('click', e => {
+  const b = e.target.closest('[data-i]'); if (!b) return;
+  chips.fns[+b.dataset.i](); S.page = 1; apply();
+});
+
+function showSkeleton() {
+  $('#count').textContent = 'Chargement…'; $('#sub').textContent = '';
+  $('#results').innerHTML = '<div class="grid">' + '<div class="skel"></div>'.repeat(12) + '</div>';
+  $('#pager').innerHTML = '';
+}
+function fail(e) {
+  setProgress(1, 1);
+  $('#count').textContent = 'Erreur';
+  $('#results').innerHTML = `<div class="state"><b>Impossible de joindre le serveur</b>${esc(e.message)}<br><br><button class="icon-btn" onclick="location.reload()">Réessayer</button></div>`;
+}
+
+/* ---------- Mode « Tout le catalogue » ---------- */
+async function loadAll(page) {
+  const A = S.all; A.loading = true; A.barcode = null;
+  const my = ++S.token;
+  showSkeleton();
+  try {
+    const q = S.q.trim();
+    if (/^\d{8,}$/.test(q)) {
+      try {
+        const p = await api('/products/barcode/' + encodeURIComponent(q));
+        if (my !== S.token) return;
+        A.items = [normAll(p)]; A.total = 1; A.pages = 1; A.page = 1; A.barcode = q;
+      } catch (e) { A.items = []; A.total = 0; A.pages = 1; A.page = 1; A.barcode = q; }
+    } else {
+      const d = await api('/products?page=' + page);
+      if (my !== S.token) return;
+      A.items = d.products.map(normAll); A.total = d.total; A.pages = d.total_pages; A.page = d.page;
+    }
+    A.loading = false;
+    render();
+  } catch (e) { A.loading = false; fail(e); }
+}
+function normAll(p) {
+  return {
+    id: p.id, nom: p.nom, nom_ar: p.nom_ar, marque: p.brand || null,
+    code_barres: p.code_produit || (p.barcodes && p.barcodes[0]) || '',
+    codes_barres: p.barcodes || (p.code_produit ? [p.code_produit] : []),
+    photo: p.photo, tendance: !!+p.tendance, nouveau_le: null, rayon: p.rayon_code,
+    a_confirmer: !!+p.a_confirmer, description: p.description, created_at: p.created_at, categorie: p.category
+  };
+}
+function renderAll() {
+  const A = S.all;
+  $('#count').textContent = A.barcode ? (A.total ? '1 produit' : 'Aucun produit pour ce code-barres') : fmt(A.total) + ' produits sur le serveur';
+  $('#sub').textContent = A.barcode ? 'Recherche du code ' + A.barcode : `Page ${fmt(A.page)} sur ${fmt(A.pages)} · du plus récent au plus ancien`;
+  $('#results').innerHTML = A.items.length ? listHtml(A.items) : '<div class="state"><b>Aucun produit trouvé</b>Vérifiez le code-barres.</div>';
+  S.filtered = A.items;
+  pager(A.pages, A.page, p => { loadAll(p); scrollTo({top:0}); });
+  $('#chips').innerHTML = '';
+}
+
+function setMode(m) {
+  S.mode = m;
+  $('#modeRayons').classList.toggle('on', m === 'rayons');
+  $('#modeAll').classList.toggle('on', m === 'all');
+  $('#rayonBlock').style.display = m === 'rayons' ? '' : 'none';
+  $('#allBlock').style.display = m === 'all' ? '' : 'none';
+  $('#sort').disabled = m === 'all';
+  $('#q').placeholder = m === 'all' ? 'Code-barres exact (8 chiffres ou plus)…' : 'Nom, nom arabe, marque ou code-barres…';
+  S.q = ''; $('#q').value = ''; $('#searchBox').classList.remove('has');
+  if (m === 'all') loadAll(S.all.page || 1); else { S.page = 1; refreshData(); }
+}
+$('#modeRayons').onclick = () => S.mode !== 'rayons' && setMode('rayons');
+$('#modeAll').onclick = () => S.mode !== 'all' && setMode('all');
+
+/* ---------- Détail ---------- */
+function openDetail(id) {
+  const pool = S.mode === 'all' ? S.all.items : S.items;
+  const p = pool.find(x => x.id == id); if (!p) return;
+  const src = safeUrl(p.photo);
+  const codes = (p.codes_barres && p.codes_barres.length ? p.codes_barres : [p.code_barres]).filter(Boolean);
+  const rows = [
+    ['Marque', p.marque], ['Rayon', p.rayon ? rayonName(p.rayon) : ''], ['Catégorie', p.categorie],
+    ['Description', p.description], ['Identifiant', '#' + p.id],
+    ['Ajouté le', p.created_at], ['Nouveau depuis', p.nouveau_le]
+  ].filter(r => r[1]);
+  const d = $('#dlg');
+  d.innerHTML = `<div class="dlg">
+    <button class="x" aria-label="Fermer" onclick="this.closest('dialog').close()">✕</button>
+    <div class="ph">${PLACEHOLDER}${src ? `<img src="${esc(src)}" alt="" onerror="this.remove()">` : ''}</div>
+    <div>
+      <div style="display:flex;gap:6px;margin-bottom:6px">${p.tendance ? '<span class="badge">🔥 Tendance</span>' : ''}${p.nouveau_le ? '<span class="badge new">Nouveau</span>' : ''}${p.a_confirmer ? '<span class="badge conf">À confirmer</span>' : ''}</div>
+      <h2>${esc(p.nom || '(sans nom)')}</h2>
+      ${p.nom_ar ? `<h2 class="ar" dir="rtl" style="color:var(--muted);font-size:18px">${esc(p.nom_ar)}</h2>` : ''}
+      <dl>
+        <dt>Code(s)-barres</dt><dd class="bc">${codes.map(c => `<button class="code" data-copy="${esc(c)}" title="Copier">${esc(c)}</button>`).join('')}</dd>
+        ${rows.map(r => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join('')}
+      </dl>
+      <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="icon-btn" data-copy="${esc(p.nom || '')}">Copier le nom</button>
+        ${src ? `<a class="icon-btn" href="${esc(src)}" target="_blank" rel="noopener" style="text-decoration:none">Ouvrir la photo</a>` : ''}
+      </div>
+    </div></div>`;
+  d.showModal();
+}
+document.addEventListener('click', e => {
+  const c = e.target.closest('[data-id]');
+  if (c && !e.target.closest('dialog')) openDetail(c.dataset.id);
+  const cp = e.target.closest('[data-copy]');
+  if (cp) { navigator.clipboard && navigator.clipboard.writeText(cp.dataset.copy).then(() => toast('Copié : ' + cp.dataset.copy)); }
+  if (e.target === $('#dlg')) $('#dlg').close();
+});
+
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), 1600); }
+
+/* ---------- Export CSV ---------- */
+$('#exportBtn').onclick = () => {
+  const rows = S.mode === 'all' ? S.all.items : S.filtered;
+  if (!rows.length) return toast('Rien à exporter');
+  const cell = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const head = ['id', 'code_barres', 'codes_barres', 'nom', 'nom_ar', 'marque', 'rayon', 'tendance', 'photo'];
+  const csv = '﻿' + [head.join(';')].concat(rows.map(p => [p.id, p.code_barres, (p.codes_barres || []).join(' '), p.nom, p.nom_ar, p.marque, p.rayon, p.tendance ? 1 : 0, p.photo].map(cell).join(';'))).join('\r\n');
+  const a = Object.assign(document.createElement('a'), {href: URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'})), download: 'catalogue-' + new Date().toISOString().slice(0, 10) + '.csv'});
+  a.click(); URL.revokeObjectURL(a.href);
+  toast(fmt(rows.length) + ' lignes exportées');
+};
+
+/* ---------- Contrôles ---------- */
+let deb;
+$('#q').addEventListener('input', e => {
+  S.q = e.target.value;
+  $('#searchBox').classList.toggle('has', !!S.q);
+  clearTimeout(deb);
+  deb = setTimeout(() => { S.page = 1; S.mode === 'all' ? loadAll(1) : apply(); }, S.mode === 'all' ? 450 : 150);
+});
+$('#qClear').onclick = () => { $('#q').value = ''; $('#q').dispatchEvent(new Event('input')); $('#q').focus(); };
+$('#brand').onchange = e => { S.brand = e.target.value; S.page = 1; apply(); };
+$('#sort').onchange = e => { S.sort = e.target.value; S.page = 1; apply(); };
+const checks = {fTrend:'trend', fPhoto:'photo', fAr:'ar', fMulti:'multi', fNew:'nw'};
+Object.keys(checks).forEach(id => $('#' + id).onchange = e => { S.f[checks[id]] = e.target.checked; S.page = 1; apply(); });
+function syncChecks() { Object.keys(checks).forEach(id => $('#' + id).checked = S.f[checks[id]]); }
+$('#reset').onclick = () => {
+  S.q = ''; S.brand = ''; S.sort = 'rank'; S.page = 1; Object.keys(S.f).forEach(k => S.f[k] = false);
+  $('#q').value = ''; $('#searchBox').classList.remove('has'); $('#sort').value = 'rank'; $('#brand').value = ''; syncChecks();
+  S.mode === 'all' ? loadAll(1) : apply();
+};
+document.querySelectorAll('.views button').forEach(b => b.onclick = () => {
+  S.view = b.dataset.view; try { localStorage.setItem('cat.view', S.view); } catch (e) {}
+  render();
+});
+$('#openFilters').onclick = () => $('#filters').classList.add('open');
+$('#closeFilters').onclick = () => $('#filters').classList.remove('open');
+$('#themeBtn').onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('cat.theme', next); } catch (e) {}
+};
+try { const t = localStorage.getItem('cat.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+document.addEventListener('keydown', e => { if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#q').focus(); } });
+
+init();
+})();
+</script>
+</body>
+</html>

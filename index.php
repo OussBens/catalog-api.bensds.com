@@ -93,6 +93,11 @@ $path_parts = explode('/', trim($path, '/'));
 $method = $_SERVER['REQUEST_METHOD'];
 
 header('Content-Type: application/json');
+// Lectures publiques : consultables depuis une page web (catalogue.html ouvert en local, autre domaine).
+// GET/HEAD seulement : les routes à jeton ou clé (en-têtes personnalisés) exigent un preflight, qui reste refusé.
+if (in_array($method, ['GET', 'HEAD'], true)) {
+    header('Access-Control-Allow-Origin: *');
+}
 
 // ===== AUTHENTIFICATION DES ÉCRITURES =====
 // Les lectures (GET/HEAD/OPTIONS) restent publiques : la recherche par
