@@ -3,7 +3,7 @@
 
 [tasks.deploy]
 description = "Upload what changed in git since the live version, over FTPS: mise run deploy [-- --dry-run | --all | --since <rev>] (CATALOG_FTP_* in your shell, see tool/deploy_ftp.sh)"
-run = "tool/deploy_ftp.sh"
+run = "bash tool/deploy_ftp.sh" # through bash: the script is committed without its executable bit
 
 # Windows: Git's own bash (System32\bash.exe would be WSL's).
 [tasks.depwin]
