@@ -12,6 +12,8 @@
  *   recalculer    les tendances de tous les produits vendus, même déjà recalculés aujourd'hui
  *   aConfirmer    les produits ajoutés par les boutiques en attente de confirmation, avec leurs votes
  *   moderer       confirmer ou supprimer à la main un produit à confirmer
+ *   photos        les photos proposées pour des produits qui en ont déjà une (Photos.php)
+ *   photo         accepter (elle remplace celle du produit) ou refuser une photo proposée
  *   sansTendance  plus aucune tendance dans des rayons (tendance imposée à 0, gardée aux recalculs)
  *   comparer      quels codes-barres d'une boutique le catalogue a déjà (sans compter de recherche)
  *   importer      les produits d'une boutique : les absents sont créés (confirmés, rangés dans les rayons de la
@@ -240,6 +242,54 @@ class Admin
         } catch (Exception $e) {
             $db->rollBack();
             throw $e;
+        }
+        return ['id' => (int)$id, 'action' => $action];
+    }
+
+    /** Les photos proposées, les plus récentes d'abord, chacune avec le produit et sa photo actuelle. */
+    public static function photos(PDO $db, $page = 1, $limite = 50)
+    {
+        $page = max(1, (int)$page);
+        $limite = max(1, min(200, (int)$limite));
+        $debut = ($page - 1) * $limite;
+        $total = (int)self::q($db, 'SELECT COUNT(*) AS n FROM catalog_photo_proposee')[0]['n'];
+        $photos = [];
+        foreach (self::q($db, "SELECT f.id, f.product_id, f.poste, f.photo, f.cree_le, p.code_produit, p.nom, p.photo AS actuelle
+                               FROM catalog_photo_proposee f JOIN catalog_product p ON p.id = f.product_id
+                               ORDER BY f.id DESC LIMIT $limite OFFSET $debut") as $f) {
+            $photos[] = [
+                'id' => (int)$f['id'], 'product_id' => (int)$f['product_id'], 'code_barres' => $f['code_produit'],
+                'nom' => $f['nom'], 'actuelle' => $f['actuelle'] ?: null, 'photo' => $f['photo'],
+                'poste' => $f['poste'], 'cree_le' => $f['cree_le'],
+            ];
+        }
+        return ['total' => $total, 'page' => $page, 'limit' => $limite, 'total_pages' => (int)ceil($total / $limite), 'photos' => $photos];
+    }
+
+    /**
+     * Accepte ([action] `accepter` : elle remplace la photo du produit, dont le fichier est supprimé s'il est à nous)
+     * ou refuse (`refuser` : son fichier est supprimé) la photo proposée [id]. [racine] : le dossier uploads.
+     */
+    public static function photo(PDO $db, $id, $action, $racine)
+    {
+        if (!in_array($action, ['accepter', 'refuser'], true)) {
+            throw new Exception('action : accepter ou refuser', 400);
+        }
+        $f = self::q($db, 'SELECT f.id, f.product_id, f.poste, f.photo, p.photo AS actuelle
+                           FROM catalog_photo_proposee f JOIN catalog_product p ON p.id = f.product_id WHERE f.id = ?', [(int)$id]);
+        if (!$f) {
+            throw new Exception('Photo proposée introuvable', 404);
+        }
+        $f = $f[0];
+        $db->prepare('DELETE FROM catalog_photo_proposee WHERE id = ?')->execute([(int)$id]);
+        if ($action === 'accepter') {
+            $db->prepare('UPDATE catalog_product SET photo = ? WHERE id = ?')->execute([$f['photo'], (int)$f['product_id']]);
+            Contributions::noter($db, (int)$f['product_id'], $f['poste'], 'complete', ['photo']);
+            if ($f['actuelle'] && $f['actuelle'] !== $f['photo']) {
+                Photos::supprimerFichier($f['actuelle'], $racine);
+            }
+        } else {
+            Photos::supprimerFichier($f['photo'], $racine);
         }
         return ['id' => (int)$id, 'action' => $action];
     }

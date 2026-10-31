@@ -25,8 +25,9 @@ OCR, scans counted by bens_ds).
 | `GET /rayons` | anyone | the sections: names FR/AR/EN, icon, products offered, trending count |
 | `GET /rayons/{code}/products?page=&limit=[&depuis=AAAA-MM-JJ]` | anyone | a page of a section's best products (`depuis`: only those that became trending since that day) |
 | `POST /tendance` | `X-Device-Id` + `X-License-Key` (the PC's signed licence) | a PC's report: `{produits, confirmations, ventes}` → `{ventes, inconnus, crees, completes, votes, confirmes, supprimes}` |
+| `POST /tendance/photo` | `X-Firebase-Token` (CaisseDZ Mobile) or `X-Device-Id` + `X-License-Key` | a product's photo from a shop: `{code_barres, nom, photo: base64}` → `{resultat, photo}`: `ajoutee` (the product had none), `proposee` (it has one: waits in `catalog_photo_proposee` for the dashboard), `cree` (unknown code: created « à confirmer » with `nom`). 300 a day per shop (`catalogue_core/Photos.php`) |
 | `GET /tendance/stats` | `X-Server-Token` = `REV_SERVER_TOKEN` | the bens_ds dashboard's trending data (with per-day series) |
-| `/admin/*` | `X-Server-Token` = `REV_SERVER_TOKEN` | the catalogue's administration for the BENS dashboard (`catalogue_core/Admin.php`): `GET catalogue`, `GET`/`PUT rayons/{code}`, `POST rayons`, `POST reclasser {depuis}` (≈ 15 s batches), `POST installer`, `POST tendances` (every sold product recomputed now), `GET a-confirmer`, `POST produits/{id}/confirmer`/`supprimer` |
+| `/admin/*` | `X-Server-Token` = `REV_SERVER_TOKEN` | the catalogue's administration for the BENS dashboard (`catalogue_core/Admin.php`): `GET catalogue`, `GET`/`PUT rayons/{code}`, `POST rayons`, `POST reclasser {depuis}` (≈ 15 s batches), `POST installer`, `POST tendances` (every sold product recomputed now), `GET a-confirmer`, `POST produits/{id}/confirmer`/`supprimer`, `GET photos` (proposed photos), `POST photos/{id}/accepter`/`refuser` |
 | `/smartscan/*` | licence (Desktop) or `X-Firebase-Token` (Mobile) | quota, `scan`, `extract`, `demande` (see `smartscan_core/routes.php`) |
 
 ## Configuration (`.env`, never in git)

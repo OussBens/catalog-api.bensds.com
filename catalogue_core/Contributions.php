@@ -49,7 +49,7 @@ class Contributions
         return (int)$db->lastInsertId();
     }
 
-    private static function noter(PDO $db, $produitId, $poste, $action, array $champs)
+    public static function noter(PDO $db, $produitId, $poste, $action, array $champs)
     {
         $db->prepare('INSERT INTO catalog_contribution (product_id, poste, action, champs, cree_le) VALUES (?, ?, ?, ?, ?)')
            ->execute([$produitId, $poste, $action, implode(',', $champs), date('Y-m-d H:i:s')]);

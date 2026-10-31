@@ -14,6 +14,7 @@
  *   catalog_poste            dernier envoi de chaque poste
  *   catalog_confirmation     votes des boutiques sur les produits à confirmer (Confirmations.php)
  *   catalog_corbeille        produits supprimés au nettoyage des noms, pour les restaurer (Admin::nettoyer)
+ *   catalog_photo_proposee   photos envoyées pour un produit qui en a déjà une, à accepter ou refuser (Photos.php)
  *
  * Les 50 000 catégories brutes (Open Food / Beauty Facts) restent telles quelles :
  * le rayon est calculé à partir de leur nom et du nom du produit (Rayons::classer).
@@ -24,7 +25,7 @@ class RayonsSchema
      * Version du schéma de ce code : à augmenter à chaque table ou colonne ajoutée. L'API compare avec celle de la
      * base (catalog_schema) à chaque requête et installe ce qui manque toute seule (RayonsSchema::assurer).
      */
-    const VERSION = 6;
+    const VERSION = 7;
 
     const COLONNES_PRODUIT = [
         'rayon_code VARCHAR(40) NULL',
@@ -48,7 +49,7 @@ class RayonsSchema
     ];
 
     const TABLES = ['catalog_rayon', 'catalog_vente_jour', 'catalog_contribution', 'catalog_poste', 'catalog_confirmation',
-                    'catalog_corbeille'];
+                    'catalog_corbeille', 'catalog_photo_proposee'];
 
     /** Toutes les tables et colonnes sont-elles là ? (Sinon : installer.) */
     public static function aJour(PDO $db)
@@ -159,6 +160,13 @@ class RayonsSchema
             codes TEXT NOT NULL,
             supprime_le DATETIME NOT NULL
         )$moteur");
+        $db->exec("CREATE TABLE IF NOT EXISTS catalog_photo_proposee (
+            id $auto,
+            product_id INT NOT NULL,
+            poste VARCHAR(20) NOT NULL,
+            photo VARCHAR(255) NOT NULL,
+            cree_le DATETIME NOT NULL
+        )$moteur");
         $index = [
             'idx_product_rayon ON catalog_product (rayon_code, exclu, score)',
             'idx_product_tendance ON catalog_product (rayon_code, tendance, tendance_le)',
@@ -166,6 +174,7 @@ class RayonsSchema
             'idx_vente_jour ON catalog_vente_jour (jour)',
             'idx_contribution_poste ON catalog_contribution (poste, action)',
             'idx_contribution_le ON catalog_contribution (cree_le)',
+            'idx_photo_proposee ON catalog_photo_proposee (product_id, poste)',
         ];
         foreach ($index as $i) {
             try {

@@ -15,12 +15,16 @@
  *                                            nom_ar, marque, categorie}], confirmations: [{code_barres, vote}],
  *                                            ventes: [{jour, code_barres, tickets}]}
  *                                            → {ventes, inconnus, crees, completes, votes, confirmes, supprimes}
+ *   POST /tendance/photo                     la photo d'un produit, d'une boutique CaisseDZ Mobile (X-Firebase-Token)
+ *                                            ou Desktop (X-Device-Id + X-License-Key) : {code_barres, nom, photo: base64}
+ *                                            → {resultat: ajoutee | proposee | cree, photo} (Photos.php)
  *   GET  /tendance/stats                     tableau de bord BENS (X-Server-Token = REV_SERVER_TOKEN)
  *   /admin/*                                 l'administration du catalogue pour le tableau de bord BENS (même jeton) :
  *                                            GET catalogue, GET|PUT rayons/{code}, POST rayons {code},
  *                                            POST reclasser {depuis}, POST installer, POST tendances,
  *                                            GET a-confirmer?page=, POST produits/{id}/confirmer|supprimer,
- *                                            POST nettoyer {renommer, supprimer}, POST restaurer {ids}
+ *                                            POST nettoyer {renommer, supprimer}, POST restaurer {ids},
+ *                                            GET photos?page=, POST photos/{id}/accepter|refuser
  */
 
 require_once __DIR__ . '/Rayons.php';
@@ -29,8 +33,10 @@ require_once __DIR__ . '/Tendance.php';
 require_once __DIR__ . '/Contributions.php';
 require_once __DIR__ . '/Confirmations.php';
 require_once __DIR__ . '/Admin.php';
+require_once __DIR__ . '/Photos.php';
 require_once __DIR__ . '/../smartscan_core/SmartScanService.php';
 require_once __DIR__ . '/../smartscan_core/LicenceBens.php';
+require_once __DIR__ . '/../smartscan_core/FirebaseToken.php';
 
 function rayonsRoute(PDO $db, $code, $sub, $method)
 {
@@ -167,6 +173,13 @@ function adminRoute(PDO $db, $method, $a, $b, $c)
         case 'POST restaurer':
             $donnees = Admin::restaurer($db, adminCorps()['ids'] ?? null);
             break;
+        case 'GET photos':
+            $donnees = Admin::photos($db, $_GET['page'] ?? 1, $_GET['limit'] ?? 50);
+            break;
+        case 'POST photos/*/accepter':
+        case 'POST photos/*/refuser':
+            $donnees = Admin::photo($db, (int)$b, $c, dossierUploads());
+            break;
         case 'POST produits/*/confirmer':
         case 'POST produits/*/supprimer':
             $donnees = Admin::moderer($db, (int)$b, $c);
@@ -184,6 +197,10 @@ function tendanceRoute(PDO $db, $method, $action = null)
         tendanceStats($db);
         return;
     }
+    if ($action === 'photo' && $method === 'POST') {
+        tendancePhoto($db);
+        return;
+    }
     if ($method !== 'POST' || ($action !== null && $action !== '')) {
         throw new Exception('Méthode non autorisée', 405);
     }
@@ -197,4 +214,29 @@ function tendanceRoute(PDO $db, $method, $action = null)
     }
     header('Cache-Control: no-store');
     echo json_encode(['success' => true, 'data' => Tendance::enregistrer($db, $poste, $corps)], JSON_UNESCAPED_UNICODE);
+}
+
+/** Le dossier uploads de l'API (photos des produits). */
+function dossierUploads()
+{
+    return dirname(__DIR__) . '/uploads';
+}
+
+/** POST /tendance/photo : la photo d'un produit envoyée par une boutique (Photos.php). */
+function tendancePhoto(PDO $db)
+{
+    if ((int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 3 * 1024 * 1024) {
+        throw new Exception('Envoi trop volumineux', 413);
+    }
+    $jeton = $_SERVER['HTTP_X_FIREBASE_TOKEN'] ?? '';
+    $poste = $jeton !== ''
+        ? Photos::posteMobile((new FirebaseToken($_ENV['FIREBASE_PROJECT_ID'] ?? ''))->verifier($jeton))
+        : tendancePoste($_SERVER['HTTP_X_DEVICE_ID'] ?? '', $_SERVER['HTTP_X_LICENSE_KEY'] ?? '');
+    $corps = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($corps)) {
+        throw new Exception('Requête invalide', 400);
+    }
+    $urlBase = $_ENV['API_URL'] ?? 'https://catalog-api.bensds.com';
+    header('Cache-Control: no-store');
+    echo json_encode(['success' => true, 'data' => Photos::envoyer($db, $poste, $corps, dossierUploads(), $urlBase)], JSON_UNESCAPED_UNICODE);
 }
